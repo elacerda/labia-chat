@@ -1,4 +1,4 @@
-# Chat Lab-IA / SCoPE-AI
+# Chat Lab-IA / AI-Scope
 
 Interface de conversação com o modelo Qwen3-Coder-Next, desenvolvida para uso interno no Laboratório Lab-IA / CBPF.
 
@@ -94,18 +94,18 @@ Cada sessão salva `createdAt`, `updatedAt`, `title` e a lista de mensagens. Ao 
 
 ## Integração com SCoPE-AI
 
-Para integrar com o SCoPE-AI (https://ai-scope.cbpf.br), crie uma implementação de [`ConversationStore`](lib/conversation.ts) e substitua a exportação `conversationStore` no módulo de conversas.
+Para integrar com o AI-Scope (https://ai-scope.cbpf.br), crie uma implementação de [`ConversationStore`](lib/conversation.ts) e substitua a exportação `conversationStore` no módulo de conversas.
 
 ### Passo 1: Criar um adapter de API
 
-Crie um novo arquivo `lib/scope-adapter.ts` implementando a interface `ConversationStore`:
+Crie um novo arquivo `lib/ai-scope-adapter.ts` implementando a interface `ConversationStore`:
 
 ```typescript
-// lib/scope-adapter.ts
+// lib/ai-scope-adapter.ts
 import type { ConversationSession } from '@/types'
 import type { ConversationStore } from './conversation'
 
-export class ScopeApiAdapter implements ConversationStore {
+export class AiScopeApiAdapter implements ConversationStore {
   private baseUrl = 'https://ai-scope.cbpf.br/api'
   private token: string
 
@@ -153,7 +153,7 @@ Substitua a instância local por uma instância do adapter de API:
 
 ```typescript
 // lib/conversation.ts
-import { ScopeApiAdapter } from '@/lib/scope-adapter'
+import { AiScopeApiAdapter } from '@/lib/ai-scope-adapter'
 
 const token = 'SEU_TOKEN_JWT_AQUI'
 
