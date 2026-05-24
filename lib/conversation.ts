@@ -10,7 +10,11 @@ const STORAGE_KEY = 'labia-chat-sessions'
  * Gera um ID único para sessões usando UUID v4
  */
 export function generateSessionId(): string {
-  return crypto.randomUUID()
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID()
+  }
+
+  return `session-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
 /**

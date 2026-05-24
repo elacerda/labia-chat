@@ -10,7 +10,7 @@ export async function GET() {
   const startTime = Date.now()
 
   try {
-    const response = await fetch(`${BASE_URL}/health`, {
+    const response = await fetch(`${getVllmServerUrl(BASE_URL)}/health`, {
       method: 'GET',
       signal: controller.signal,
       cache: 'no-store',
@@ -31,4 +31,8 @@ export async function GET() {
   } finally {
     clearTimeout(timeoutId)
   }
+}
+
+function getVllmServerUrl(baseUrl: string | undefined): string {
+  return (baseUrl || '').replace(/\/v1\/?$/, '').replace(/\/+$/, '')
 }

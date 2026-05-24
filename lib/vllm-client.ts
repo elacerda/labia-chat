@@ -1,14 +1,9 @@
 // Cliente da API vLLM para o Chat Lab-IA
 import { Message, ToolCall, ChatRequestPayload, ServerStatus } from '@/types'
 
-// Configurações do servidor vLLM (carregadas do .env)
-const BASE_URL = process.env.VLLM_BASE_URL
-const API_KEY = process.env.VLLM_API_KEY
-const MODEL_ID = process.env.VLLM_MODEL_ID
-
 // Parâmetros fixos para todas as requisições
 const FIXED_PARAMS = {
-  model: MODEL_ID,
+  model: 'server-configured-model',
   temperature: 1.0,
   top_p: 0.95,
   max_tokens: 2048,
@@ -61,11 +56,10 @@ export async function chatStream(
   const payload = buildPayload(messages, tools)
 
   try {
-    const response = await fetch(`${BASE_URL}/chat/completions`, {
+    const response = await fetch('/api/chat', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`,
       },
       body: JSON.stringify(payload),
       signal,

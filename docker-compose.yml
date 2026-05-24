@@ -9,9 +9,11 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
-      VLLM_BASE_URL: ${VLLM_BASE_URL:-http://localhost:8000/v1}
-      VLLM_API_KEY: ${VLLM_API_KEY:-labia-local-key}
-      VLLM_MODEL_ID: ${VLLM_MODEL_ID:-qwen-coder-next}
+      VLLM_BASE_URL: ${VLLM_BASE_URL:-${NEXT_PUBLIC_VLLM_BASE_URL:-http://host.docker.internal:8000/v1}}
+      VLLM_API_KEY: ${VLLM_API_KEY:-${NEXT_PUBLIC_VLLM_API_KEY:-labia-local-key}}
+      VLLM_MODEL_ID: ${VLLM_MODEL_ID:-${NEXT_PUBLIC_VLLM_MODEL_ID:-qwen-coder-next}}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "${LABIA_CHAT_PORT:-3000}:3000"
     volumes:
