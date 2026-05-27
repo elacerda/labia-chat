@@ -1,15 +1,21 @@
 """Configurações da aplicação usando Pydantic Settings."""
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Caminho absoluto para o arquivo .env (um diretório acima do backend/)
+BACKEND_DIR = Path(__file__).resolve().parents[3]
+ENV_FILE = BACKEND_DIR / ".env"
 
 
 class Settings(BaseSettings):
     """Configurações da aplicação labia-chat."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=ENV_FILE,
         env_file_encoding="utf-8",
-        case_sensitive=True,
+        case_sensitive=False,
         extra="ignore",
     )
 
