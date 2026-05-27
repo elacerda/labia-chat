@@ -1,0 +1,102 @@
+Sobre a direção que vamos tomar:
+
+O projeto labia-chat de hoje vai virar um backend em FastAPI 
+e depois vamos construir um frontend. Por enquanto pensamos que 
+o frontend vai ficar no mesmo repositório. Ainda não quero programar 
+frontend. Vamos apenas desenvolver o backend.
+
+O labia-chat do chat tem que validar um token do usuário usando a 
+rota abaixo e só abrir vai funvionsat dr o usuário tiver a role com 
+o nome `chat_vllm.
+
+Um exemplo é o seguinte: o usuário faz o login no portal do ai-scope:
+
+---
+
+res = requests.post(
+    "https://ai-scope.cbpf.br/adss/v1/auth/login",
+    data = {
+        "username": "teste",
+        "password": "asdflkjh",
+    }
+)
+
+res.json()
+
+{'access_token': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3Nzk5MTAxNjYsInN1YiI6ImJlYWU5NmYzLWEyYjAtNDJjNi04YjlkLWZkYzExMjE3NzYzOCIsImlzX3N0YWZmIjpmYWxzZSwiaXNfc3VwZXJ1c2VyIjpmYWxzZX0.fPYlv3QkReEkruilboyDfvwKS9WEUB3WNzCwO5VuhXI',
+ 'token_type': 'bearer'}
+
+---
+
+Esse token pode ser validado pelo chat utilizando a rota abaixo (adss/v1/users/me):
+
+---
+
+res1 = requests.get(
+    "https://ai-scope.cbpf.br/adss/v1/users/me",
+    headers = {
+        "Authorization": f"Bearer {res.json()['access_token']}"
+    }
+)
+
+res1.json()
+
+{'username': 'teste',
+ 'email': 'teste@teste.com',
+ 'full_name': 'teste',
+ 'description': None,
+ 'id': 'beae96f3-a2b0-42c6-8b9d-fdc112177638',
+ 'is_active': True,
+ 'is_staff': False,
+ 'is_superuser': False,
+ 'created_at': '2026-04-29T19:05:43.819130',
+ 'last_login': '2026-05-27T13:29:26.299114',
+ 'roles': [{'name': 'public',
+   'description': 'all users, including unregistered ',
+   'id': 1},
+  {'name': 'splus_internal', 'description': '', 'id': 7}]}
+
+---
+
+Nesse JSON recebido existe o id do usuário que vai ser usado como key nas 
+tabelas para salvar o histórico do chat.
+
+Vai ter um callback que vai devolver puramente o token e o labia-chat vai 
+poder salvar o token e usar para valida-lo com a rota acima e recolher 
+informações do usuário. Como mvp eu vou gerar um token de teste e vc vai 
+usar este para validar o chat. A parte de callback deixamos por agora apenas 
+uma rota para receber o token.
+
+O banco de dados onde vamos guardar tudo é um banco postgresql que temos 
+instalado. Vamos utilizar uma orm para o banco de dados e eu sugiro peewee. 
+Você sugere outro ORM?
+
+O projeto vai ter um .env para dados sensíveis, como configurações de banco, 
+configurações do modelo. Você acha muito difícil escrevermos tudo sendo 
+model agnostic? Eu quero futuramente ter outras estancias de modelos funcionando.
+Dessa forma, o projeto de frontend pode fazer a escolha de qual modelo usar.
+
+A pergunta que não quer calar. Vamos começar um projeto novo ou você acha que o 
+código atual vale de alguma coisa? Eu digo isso porque vamos mudar completamente
+de linguagem (agora vai ser python/FastAPI) e já que existe front e back tudo 
+construído em js.
+
+Pense em todos os passos que vamos necessitar para implementação, endpoints, etc.
+
+Antes de iniciar a documentação dessa nova versão, vamos conversar.
+
+############# DB
+
+database:
+  dbname: labIA
+  user: cbpfuser
+  password: p1X5/6~s~GDV}LSqv!
+  host: orion.cbpf.br
+  port: 4321
+
+postgres
+
+vamos usar um orm para o banco de dados, sugerir uma ORM (uso peewee)
+ 
+ 
+    
