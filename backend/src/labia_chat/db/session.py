@@ -1,5 +1,8 @@
 """Gerenciamento de sessão assíncrona com SQLAlchemy."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
@@ -45,11 +48,23 @@ def get_sessionmaker():
     return _sessionmaker
 
 
-async def get_async_session() -> AsyncSession:
+@asynccontextmanager
+async def session_scope() -> AsyncIterator[AsyncSession]:
     """
-    Dependency para obter sessão assíncrona.
+    Context manager para gerenciar sessão com transação.
 
-    Pode ser sobrescrita via dependency_overrides nos testes.
+    Abre uma sessão, faz commit em caso de sucesso, rollback em caso de erro
+    e relança a exceção. O async with cuida do fechamento da sessão.
+
+    Exemplo de uso:
+        async with session_scope() as session:
+            await session.execute(query)
+
+    Yields:
+        AsyncSession: Sessão assíncrona com gerenciamento de transação.
+
+    Raises:
+        Exception: Qualquer exceção ocorrida durante a operação.
     """
     async with get_sessionmaker()() as session:
         try:
@@ -58,5 +73,19 @@ async def get_async_session() -> AsyncSession:
         except Exception:
             await session.rollback()
             raise
-        finally:
-            await session.close()
+
+
+async def get_async_session() -> AsyncIterator[AsyncSession]:
+    """
+    Dependency para obter sessão assíncrona.
+
+    Pode ser sobrescrita via dependency_overrides nos testes.
+
+    Args:
+        session_factory: Factory que retorna um async context manager de AsyncSession.
+
+    Yields:
+        AsyncSession: Sessão assíncrona.
+    """
+    async with session_scope() as session:
+        yield session

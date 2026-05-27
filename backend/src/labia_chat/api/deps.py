@@ -9,6 +9,7 @@ from labia_chat.core.errors import (
 )
 from labia_chat.schemas.user import AuthenticatedUser
 from labia_chat.services.auth_service import AuthService
+from labia_chat.services.chat_user_sync import ChatUserSyncService
 
 
 def get_auth_service() -> AuthService:
@@ -18,6 +19,15 @@ def get_auth_service() -> AuthService:
     Pode ser sobrescrita via dependency_overrides nos testes.
     """
     return AuthService()
+
+
+def get_chat_user_sync_service() -> ChatUserSyncService:
+    """
+    Retorna instância de ChatUserSyncService.
+
+    Pode ser sobrescrita via dependency_overrides nos testes.
+    """
+    return ChatUserSyncService()
 
 
 def extract_bearer_token(
@@ -62,6 +72,7 @@ def extract_bearer_token(
 async def get_current_user(
     authorization: str | None = Header(None, alias="Authorization"),
     auth_service: AuthService = Depends(get_auth_service),
+    chat_user_sync_service: ChatUserSyncService = Depends(get_chat_user_sync_service),
 ) -> AuthenticatedUser:
     """
     Dependência para obter usuário autenticado.
@@ -69,6 +80,7 @@ async def get_current_user(
     Args:
         authorization: Header Authorization (injetado pelo FastAPI).
         auth_service: Instância de AuthService (injetada por Depends).
+        chat_user_sync_service: Instância de ChatUserSyncService (injetada por Depends).
 
     Returns:
         AuthenticatedUser se o token for válido.
@@ -76,12 +88,13 @@ async def get_current_user(
     Raises:
         HTTPException 401: Se o token for inválido ou ausente.
         HTTPException 403: Se o usuário não tiver permissão.
-        HTTPException 503: Se o serviço externo estiver indisponível.
+        HTTPException 503: Se o serviço externo estiver indisponível ou
+        falha ao sincronizar.
     """
     token = extract_bearer_token(authorization)
 
     try:
-        return await auth_service.validate_token(token)
+        user = await auth_service.validate_token(token)
     except AuthenticationError as exc:
         raise HTTPException(
             status_code=401,
@@ -97,3 +110,14 @@ async def get_current_user(
             status_code=503,
             detail=exc.message,
         ) from exc
+
+    # Sincroniza usuário no banco após validação bem-sucedida
+    try:
+        await chat_user_sync_service.sync(user)
+    except ExternalServiceError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=exc.message,
+        ) from exc
+
+    return user
