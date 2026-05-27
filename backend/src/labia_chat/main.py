@@ -3,7 +3,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from labia_chat.api.routes import health_router
+from labia_chat.api.routes import auth_router, health_router
 from labia_chat.core.config import settings
 
 app = FastAPI(
@@ -21,6 +21,7 @@ app.add_middleware(
 )
 
 # Inclusão dos routers
+app.include_router(auth_router)
 app.include_router(health_router)
 
 
