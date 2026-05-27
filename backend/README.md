@@ -92,8 +92,40 @@ cp .env.example .env
 #### Configurações futuras (MVP 2+)
 
 - `DATABASE_URL` - URL de conexão com banco de dados (MVP 2)
+  - Exemplo: `DATABASE_URL=postgresql+asyncpg://labia_chat:labia_chat@localhost:5432/labia_chat`
 - `VLLM_BASE_URL` - URL base do vLLM (MVP 4)
 - `VLLM_DEFAULT_MODEL` - Modelo padrão do vLLM (MVP 4)
+
+## Banco de Dados
+
+O backend usa SQLAlchemy async com PostgreSQL para persistência de dados.
+
+### Configuração
+
+Copie o arquivo `.env.example` para `.env` e configure a variável `DATABASE_URL`:
+
+```bash
+cp .env.example .env
+# Edite .env e configure sua DATABASE_URL
+```
+
+### Migrations
+
+Para aplicar as migrations:
+
+```bash
+cd backend
+python -m alembic upgrade head
+```
+
+Para criar uma nova migration:
+
+```bash
+cd backend
+python -m alembic revision -m "nome_da_migration"
+```
+
+**Nota:** As tabelas de usuários/conversas/mensagens serão criadas nas próximas microtarefas.
 
 ## Execução
 
