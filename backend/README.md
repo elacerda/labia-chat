@@ -125,7 +125,27 @@ cd backend
 python -m alembic revision -m "nome_da_migration"
 ```
 
-**Nota:** As tabelas de usuários/conversas/mensagens serão criadas nas próximas microtarefas.
+**Nota:** A tabela `chat_users` foi criada na MVP 2.2. Tabelas de conversas/mensagens serão criadas nas próximas microtarefas.
+
+### Tabela chat_users
+
+A tabela `chat_users` armazena usuários locais do labia-chat vinculados aos usuários do AI-Scope/ADSS.
+
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| `id` | UUID | Primary key interna do labia-chat |
+| `adss_id` | UUID | UUID externo do AI-Scope/ADSS (único) |
+| `username` | VARCHAR(255) | Nome de usuário |
+| `email` | VARCHAR(255) | Email (opcional) |
+| `full_name` | VARCHAR(255) | Nome completo (opcional) |
+| `is_active` | BOOLEAN | Usuário ativo (padrão: true) |
+| `is_staff` | BOOLEAN | Usuário staff (padrão: false) |
+| `is_superuser` | BOOLEAN | Usuário superuser (padrão: false) |
+| `roles` | JSONB | Lista de roles do usuário |
+| `created_at` | TIMESTAMPTZ | Data de criação |
+| `updated_at` | TIMESTAMPTZ | Data da última atualização |
+| `last_seen_at` | TIMESTAMPTZ | Último acesso (opcional) |
+
 
 ## Execução
 

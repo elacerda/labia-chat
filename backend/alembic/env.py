@@ -13,6 +13,10 @@ from alembic import context
 from labia_chat.core.config import settings
 from labia_chat.db.base import Base
 
+# Importar modelos para que o Alembic os conheça via Base.metadata
+# Isso garante que novas tabelas sejam detectadas por autogenerate
+from labia_chat.models import ChatUser  # noqa: F401
+
 # Configuração do Alembic
 config = context.config
 
