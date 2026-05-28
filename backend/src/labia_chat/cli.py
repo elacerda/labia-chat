@@ -3,7 +3,6 @@
 import argparse
 import getpass
 import os
-import sys
 
 from labia_chat.cli_client import (
     AuthError,
@@ -87,6 +86,186 @@ def print_messages(messages: list[dict], show_last: int) -> None:
         else:
             print(f"[{role}]: {content}")
         print()
+
+
+def print_user_summary(user_data: dict) -> None:
+    """
+    Imprime um resumo compacto do usuário.
+
+    Args:
+        user_data: Dados do usuário retornado por /auth/me.
+    """
+    username = user_data.get("username", "desconhecido")
+    email = user_data.get("email", "")
+    is_active = user_data.get("is_active", False)
+    user_id = user_data.get("id", "")
+
+    print(f"Usuário: {username}")
+    if email:
+        print(f"E-mail: {email}")
+    if user_id:
+        print(f"ID: {user_id}")
+    status = "Sim" if is_active else "Não"
+    print(f"Ativo: {status}")
+
+
+def print_conversation_summary(conversation: dict) -> None:
+    """
+    Imprime um resumo compacto da conversa.
+
+    Args:
+        conversation: Dados da conversa criada.
+    """
+    conv_id = conversation.get("id", "desconhecido")
+    title = conversation.get("title")
+
+    print(f"Conversa criada: {conv_id}")
+    if title:
+        print(f"Título: {title}")
+
+
+def print_assistant_response(response: dict) -> None:
+    """
+    Imprime apenas a resposta do assistente.
+
+    Args:
+        response: Dados da resposta do assistente.
+    """
+    content = response.get("content", "")
+    print(content)
+
+
+def auth_me_command(args: argparse.Namespace) -> int:
+    """
+    Executa o comando 'auth me' para validar token.
+
+    Args:
+        args: Argumentos da linha de comando.
+
+    Returns:
+        Código de saída (0 para sucesso, 1 para erro).
+    """
+    api_url = resolve_api_url(args.api_url)
+    token = resolve_token(args.token)
+
+    client = CLIClient(api_url)
+
+    try:
+        client.set_token(token)
+        user_data = client.validate_token()
+        print_user_summary(user_data)
+        return 0
+    except AuthError as e:
+        print(f"Erro: {e}")
+        return 1
+    except PermissionError as e:
+        print(f"Erro: {e}")
+        return 1
+    except BackendError as e:
+        print(f"Erro: {e}")
+        return 1
+    except ConnectionError as e:
+        print(f"Erro: {e}")
+        return 1
+    finally:
+        client.close()
+
+
+def conversations_create_command(args: argparse.Namespace) -> int:
+    """
+    Executa o comando 'conversations create' para criar nova conversa.
+
+    Args:
+        args: Argumentos da linha de comando.
+
+    Returns:
+        Código de saída (0 para sucesso, 1 para erro).
+    """
+    api_url = resolve_api_url(args.api_url)
+    token = resolve_token(args.token)
+
+    client = CLIClient(api_url)
+
+    try:
+        client.set_token(token)
+        title = args.title if args.title else None
+        conversation = client.create_conversation(title=title)
+        print_conversation_summary(conversation)
+        return 0
+    except AuthError as e:
+        print(f"Erro: {e}")
+        return 1
+    except PermissionError as e:
+        print(f"Erro: {e}")
+        return 1
+    except BackendError as e:
+        print(f"Erro: {e}")
+        return 1
+    except ConnectionError as e:
+        print(f"Erro: {e}")
+        return 1
+    finally:
+        client.close()
+
+
+def chat_send_command(args: argparse.Namespace) -> int:
+    """
+    Executa o comando 'chat send' para enviar mensagem não interativa.
+
+    Args:
+        args: Argumentos da linha de comando.
+
+    Returns:
+        Código de saída (0 para sucesso, 1 para erro).
+    """
+    api_url = resolve_api_url(args.api_url)
+    token = resolve_token(args.token)
+
+    client = CLIClient(api_url)
+
+    try:
+        client.set_token(token)
+        client.conversation_id = args.conversation_id
+
+        # Valida o token primeiro
+        try:
+            client.validate_token()
+        except AuthError as e:
+            print(f"Erro: {e}")
+            return 1
+        except PermissionError as e:
+            print(f"Erro: {e}")
+            return 1
+        except BackendError as e:
+            print(f"Erro: {e}")
+            return 1
+        except ConnectionError as e:
+            print(f"Erro: {e}")
+            return 1
+
+        # Envia a mensagem
+        try:
+            response = client.generate_message(args.message)
+            print_assistant_response(response)
+            return 0
+        except AuthError as e:
+            print(f"Erro: {e}")
+            return 1
+        except PermissionError as e:
+            print(f"Erro: {e}")
+            return 1
+        except NotFoundError as e:
+            print(f"Erro: {e}")
+            return 1
+        except BackendError as e:
+            print(f"Erro: {e}")
+            return 1
+        except ConnectionError as e:
+            print(f"Erro: {e}")
+            return 1
+
+    finally:
+        client.close()
 
 
 def chat_command(args: argparse.Namespace) -> int:
@@ -280,11 +459,97 @@ def main() -> int:
 
     subparsers = parser.add_subparsers(dest="command", help="Comandos disponíveis")
 
+    # Comando auth
+    auth_parser = subparsers.add_parser(
+        "auth",
+        help="Comandos de autenticação",
+    )
+    auth_subparsers = auth_parser.add_subparsers(
+        dest="auth_command", help="Comandos disponíveis"
+    )
+
+    # auth me
+    auth_me_parser = auth_subparsers.add_parser(
+        "me",
+        help="Valida token e exibe dados do usuário",
+    )
+    auth_me_parser.add_argument(
+        "--api-url",
+        type=str,
+        help="URL do backend (padrão: http://127.0.0.1:8010 ou LABIA_CHAT_API_URL)",
+    )
+    auth_me_parser.add_argument(
+        "--token",
+        type=str,
+        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN ou prompt sem eco)",
+    )
+
+    # Comando conversations
+    conversations_parser = subparsers.add_parser(
+        "conversations",
+        help="Comandos de conversas",
+    )
+    conversations_subparsers = conversations_parser.add_subparsers(
+        dest="conversations_command", help="Comandos disponíveis"
+    )
+
+    # conversations create
+    conversations_create_parser = conversations_subparsers.add_parser(
+        "create",
+        help="Cria uma nova conversa",
+    )
+    conversations_create_parser.add_argument(
+        "--api-url",
+        type=str,
+        help="URL do backend (padrão: http://127.0.0.1:8010 ou LABIA_CHAT_API_URL)",
+    )
+    conversations_create_parser.add_argument(
+        "--token",
+        type=str,
+        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN ou prompt sem eco)",
+    )
+    conversations_create_parser.add_argument(
+        "--title",
+        type=str,
+        help="Título da nova conversa",
+    )
+
     # Comando chat
     chat_parser = subparsers.add_parser(
         "chat",
-        help="Inicia o chat interativo",
+        help="Comandos de chat",
     )
+    chat_subparsers = chat_parser.add_subparsers(
+        dest="chat_command", help="Comandos disponíveis"
+    )
+
+    # chat send
+    chat_send_parser = chat_subparsers.add_parser(
+        "send",
+        help="Envia uma mensagem não interativa",
+    )
+    chat_send_parser.add_argument(
+        "conversation_id",
+        type=str,
+        help="ID da conversa (UUID)",
+    )
+    chat_send_parser.add_argument(
+        "message",
+        type=str,
+        help="Mensagem a ser enviada",
+    )
+    chat_send_parser.add_argument(
+        "--api-url",
+        type=str,
+        help="URL do backend (padrão: http://127.0.0.1:8010 ou LABIA_CHAT_API_URL)",
+    )
+    chat_send_parser.add_argument(
+        "--token",
+        type=str,
+        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN ou prompt sem eco)",
+    )
+
+    # chat interativo (com argumentos existentes)
     chat_parser.add_argument(
         "--api-url",
         type=str,
@@ -314,17 +579,41 @@ def main() -> int:
 
     args = parser.parse_args()
 
-    if args.command == "chat":
-        # Valida show_last
-        if args.show_last < 0:
-            print("Erro: --show-last deve ser um número inteiro não negativo.")
-            return 1
-        return chat_command(args)
+    if args.command is None:
+        parser.print_help()
+        return 0
 
-    # Se nenhum comando foi fornecido, mostra ajuda
-    parser.print_help()
-    return 0
+    if args.command == "auth":
+        if args.auth_command == "me":
+            return auth_me_command(args)
+        else:
+            auth_parser.print_help()
+            return 0
 
+    elif args.command == "conversations":
+        if args.conversations_command == "create":
+            return conversations_create_command(args)
+        else:
+            conversations_parser.print_help()
+            return 0
 
-if __name__ == "__main__":
-    sys.exit(main())
+    elif args.command == "chat":
+        if getattr(args, "chat_command", None) == "send":
+            # Valida conversation_id
+            if not args.conversation_id:
+                print("Erro: conversation_id é obrigatório.")
+                return 1
+            # Valida message
+            if not args.message:
+                print("Erro: message é obrigatória.")
+                return 1
+            return chat_send_command(args)
+        elif getattr(args, "chat_command", None) is None:
+            # Chat interativo
+            if args.show_last < 0:
+                print("Erro: --show-last deve ser um número inteiro não negativo.")
+                return 1
+            return chat_command(args)
+        else:
+            chat_parser.print_help()
+            return 0

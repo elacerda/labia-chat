@@ -3,8 +3,13 @@
 import argparse
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from labia_chat.cli import (
+    auth_me_command,
     chat_command,
+    chat_send_command,
+    conversations_create_command,
     main,
     resolve_api_url,
     resolve_token,
@@ -648,3 +653,444 @@ class TestChatCommandShowLastValidation:
             result = main()
 
             assert result == 1
+
+
+class TestAuthMeCommand:
+    """Testes do comando 'auth me'."""
+
+    def test_auth_me_success(self) -> None:
+        """Testa 'auth me' com sucesso."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="test-token",
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.validate_token.return_value = {
+                "id": "user123",
+                "username": "testuser",
+                "email": "test@example.com",
+                "is_active": True,
+                "is_staff": False,
+                "is_superuser": False,
+                "roles": ["public", "chat_vllm"],
+            }
+
+            result = auth_me_command(args)
+
+            assert result == 0
+            mock_client.set_token.assert_called_once_with("test-token")
+            mock_client.validate_token.assert_called_once()
+            mock_client.close.assert_called_once()
+
+    def test_auth_me_with_env_token(self) -> None:
+        """Testa 'auth me' usando token do env."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token=None,
+        )
+
+        with patch("labia_chat.cli.resolve_api_url") as mock_resolve_api:
+            mock_resolve_api.return_value = "http://example.com"
+
+            with patch("labia_chat.cli.resolve_token") as mock_resolve_token:
+                mock_resolve_token.return_value = "env-token"
+
+                with patch("labia_chat.cli.CLIClient") as MockClient:
+                    mock_client = MagicMock()
+                    MockClient.return_value = mock_client
+
+                    mock_client.validate_token.return_value = {
+                        "id": "user123",
+                        "username": "testuser",
+                        "email": "test@example.com",
+                        "is_active": True,
+                    }
+
+                    result = auth_me_command(args)
+
+                    assert result == 0
+                    mock_client.set_token.assert_called_once_with("env-token")
+
+    def test_auth_me_auth_error(self) -> None:
+        """Testa 'auth me' com token inválido."""
+        from labia_chat.cli_client import AuthError
+
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="invalid-token",
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.validate_token.side_effect = AuthError("Token inválido")
+
+            result = auth_me_command(args)
+
+            assert result == 1
+            mock_client.close.assert_called_once()
+
+    def test_auth_me_permission_error(self) -> None:
+        """Testa 'auth me' sem permissão."""
+        from labia_chat.cli_client import PermissionError
+
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="no-permission-token",
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.validate_token.side_effect = PermissionError(
+                "sem permissão chat_vllm"
+            )
+
+            result = auth_me_command(args)
+
+            assert result == 1
+
+    def test_auth_me_backend_error(self) -> None:
+        """Testa 'auth me' com erro no backend."""
+        from labia_chat.cli_client import BackendError
+
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="test-token",
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.validate_token.side_effect = BackendError(
+                "Backend indisponível"
+            )
+
+            result = auth_me_command(args)
+
+            assert result == 1
+
+
+class TestConversationsCreateCommand:
+    """Testes do comando 'conversations create'."""
+
+    def test_conversations_create_success_with_title(self) -> None:
+        """Testa 'conversations create' com título."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="test-token",
+            title="Teste",
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.create_conversation.return_value = {
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "title": "Teste",
+                "metadata": {},
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z",
+                "archived_at": None,
+            }
+
+            result = conversations_create_command(args)
+
+            assert result == 0
+            mock_client.set_token.assert_called_once_with("test-token")
+            mock_client.create_conversation.assert_called_once_with(title="Teste")
+            mock_client.close.assert_called_once()
+
+    def test_conversations_create_success_without_title(self) -> None:
+        """Testa 'conversations create' sem título."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="test-token",
+            title=None,
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.create_conversation.return_value = {
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "title": None,
+                "metadata": {},
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z",
+                "archived_at": None,
+            }
+
+            result = conversations_create_command(args)
+
+            assert result == 0
+            mock_client.create_conversation.assert_called_once_with(title=None)
+
+    def test_conversations_create_auth_error(self) -> None:
+        """Testa 'conversations create' com token inválido."""
+        from labia_chat.cli_client import AuthError
+
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="invalid-token",
+            title="Teste",
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.create_conversation.side_effect = AuthError("Token inválido")
+
+            result = conversations_create_command(args)
+
+            assert result == 1
+            mock_client.close.assert_called_once()
+
+
+class TestChatSendCommand:
+    """Testes do comando 'chat send'."""
+
+    def test_chat_send_success(self) -> None:
+        """Testa 'chat send' com sucesso."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="test-token",
+            conversation_id="123e4567-e89b-12d3-a456-426614174000",
+            message="Olá, mundo!",
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.validate_token.return_value = {
+                "id": "user123",
+                "username": "testuser",
+            }
+
+            mock_client.generate_message.return_value = {
+                "id": "msg-123",
+                "conversation_id": "123e4567-e89b-12d3-a456-426614174000",
+                "role": "assistant",
+                "content": "Esta é uma resposta de teste.",
+                "sequence_index": 1,
+                "model": "qwen-coder-next",
+                "metadata": {},
+                "created_at": "2024-01-01T00:00:00Z",
+            }
+
+            result = chat_send_command(args)
+
+            assert result == 0
+            mock_client.set_token.assert_called_once_with("test-token")
+            mock_client.validate_token.assert_called_once()
+            mock_client.generate_message.assert_called_once_with("Olá, mundo!")
+            mock_client.close.assert_called_once()
+
+    def test_chat_send_with_env_token(self) -> None:
+        """Testa 'chat send' usando token do env."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token=None,
+            conversation_id="123e4567-e89b-12d3-a456-426614174000",
+            message="Olá!",
+        )
+
+        with patch("labia_chat.cli.resolve_api_url") as mock_resolve_api:
+            mock_resolve_api.return_value = "http://example.com"
+
+            with patch("labia_chat.cli.resolve_token") as mock_resolve_token:
+                mock_resolve_token.return_value = "env-token"
+
+                with patch("labia_chat.cli.CLIClient") as MockClient:
+                    mock_client = MagicMock()
+                    MockClient.return_value = mock_client
+
+                    mock_client.validate_token.return_value = {
+                        "id": "user123",
+                        "username": "testuser",
+                    }
+
+                    mock_client.generate_message.return_value = {
+                        "content": "Resposta",
+                    }
+
+                    result = chat_send_command(args)
+
+                    assert result == 0
+                    mock_client.set_token.assert_called_once_with("env-token")
+
+    def test_chat_send_auth_error(self) -> None:
+        """Testa 'chat send' com token inválido."""
+        from labia_chat.cli_client import AuthError
+
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="invalid-token",
+            conversation_id="123e4567-e89b-12d3-a456-426614174000",
+            message="Olá!",
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.validate_token.side_effect = AuthError("Token inválido")
+
+            result = chat_send_command(args)
+
+            assert result == 1
+            mock_client.close.assert_called_once()
+
+    def test_chat_send_not_found_error(self) -> None:
+        """Testa 'chat send' com conversa não encontrada."""
+        from labia_chat.cli_client import NotFoundError
+
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="test-token",
+            conversation_id="nonexistent",
+            message="Olá!",
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.validate_token.return_value = {
+                "id": "user123",
+                "username": "testuser",
+            }
+
+            mock_client.generate_message.side_effect = NotFoundError(
+                "Conversa não encontrada"
+            )
+
+            result = chat_send_command(args)
+
+            assert result == 1
+
+    def test_chat_send_backend_error(self) -> None:
+        """Testa 'chat send' com erro no backend."""
+        from labia_chat.cli_client import BackendError
+
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="test-token",
+            conversation_id="123e4567-e89b-12d3-a456-426614174000",
+            message="Olá!",
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.validate_token.return_value = {
+                "id": "user123",
+                "username": "testuser",
+            }
+
+            mock_client.generate_message.side_effect = BackendError(
+                "Erro no backend"
+            )
+
+            result = chat_send_command(args)
+
+            assert result == 1
+
+
+class TestMainSmokeCommands:
+    """Testes da função main."""
+
+    def test_main_auth_me_command(self) -> None:
+        """Testa main com comando 'auth me'."""
+        with patch("labia_chat.cli.auth_me_command") as mock_auth:
+            mock_auth.return_value = 0
+
+            with patch("sys.argv", ["labia-chat", "auth", "me"]):
+                with patch("argparse.ArgumentParser.parse_args") as mock_parse:
+                    args = argparse.Namespace(
+                        command="auth",
+                        auth_command="me",
+                        api_url=None,
+                        token=None,
+                    )
+                    mock_parse.return_value = args
+
+                    result = main()
+
+                    assert result == 0
+                    mock_auth.assert_called_once_with(args)
+
+    def test_main_conversations_create_command(self) -> None:
+        """Testa main com comando 'conversations create'."""
+        with patch("labia_chat.cli.conversations_create_command") as mock_create:
+            mock_create.return_value = 0
+
+            with patch("sys.argv", ["labia-chat", "conversations", "create"]):
+                with patch("argparse.ArgumentParser.parse_args") as mock_parse:
+                    args = argparse.Namespace(
+                        command="conversations",
+                        conversations_command="create",
+                        api_url=None,
+                        token=None,
+                        title=None,
+                    )
+                    mock_parse.return_value = args
+
+                    result = main()
+
+                    assert result == 0
+                    mock_create.assert_called_once_with(args)
+
+    def test_main_chat_send_command(self) -> None:
+        """Testa main com comando 'chat send'."""
+        with patch("labia_chat.cli.chat_send_command") as mock_send:
+            mock_send.return_value = 0
+
+            with patch("sys.argv", ["labia-chat", "chat", "send", "conv-id", "msg"]):
+                with patch("argparse.ArgumentParser.parse_args") as mock_parse:
+                    args = argparse.Namespace(
+                        command="chat",
+                        chat_command="send",
+                        conversation_id="conv-id",
+                        message="msg",
+                        api_url=None,
+                        token=None,
+                    )
+                    mock_parse.return_value = args
+
+                    result = main()
+
+                    assert result == 0
+                    mock_send.assert_called_once_with(args)
+
+    def test_main_chat_send_missing_conversation_id(self) -> None:
+        """Testa 'chat send' sem conversation_id (argparse sai com código 2)."""
+        with patch("sys.argv", ["labia-chat", "chat", "send"]):
+            # argparse sai com código 2 quando argumentos obrigatórios faltam
+            # SystemExit(2) é levantado, main() captura e retorna 1
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+            assert exc_info.value.code == 2
+
+    def test_main_chat_send_missing_message(self) -> None:
+        """Testa 'chat send' sem message (argparse sai com código 2)."""
+        with patch("sys.argv", ["labia-chat", "chat", "send", "conv-id"]):
+            # argparse sai com código 2 quando argumentos obrigatórios faltam
+            # SystemExit(2) é levantado, main() captura e retorna 1
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+            assert exc_info.value.code == 2
