@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from labia_chat.core.errors import ExternalServiceError
 from labia_chat.db.session import session_scope
+from labia_chat.models.user import ChatUser
 from labia_chat.repositories.chat_user import ChatUserRepository
 from labia_chat.schemas.user import AuthenticatedUser
 
@@ -36,19 +37,22 @@ class ChatUserSyncService:
         self._repository = repository or ChatUserRepository()
         self._session_scope_factory = session_scope_factory or session_scope
 
-    async def sync(self, user: AuthenticatedUser) -> None:
+    async def sync(self, user: AuthenticatedUser) -> ChatUser:
         """
         Sincroniza usuário na tabela chat_users.
 
         Args:
             user: AuthenticatedUser com dados do ADSS.
 
+        Returns:
+            ChatUser: Instância do usuário sincronizado (criado ou atualizado).
+
         Raises:
             ExternalServiceError: Se houver falha ao acessar o banco de dados.
         """
         try:
             async with self._session_scope_factory() as session:
-                await self._repository.upsert(session, user)
+                return await self._repository.upsert(session, user)
         except ExternalServiceError:
             raise
         except Exception as exc:
