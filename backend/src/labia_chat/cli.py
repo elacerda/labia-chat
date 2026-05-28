@@ -135,6 +135,83 @@ def print_assistant_response(response: dict) -> None:
     print(content)
 
 
+def format_datetime(dt_str: str) -> str:
+    """
+    Formata uma string de datetime ISO para exibição em PT-BR.
+
+    Args:
+        dt_str: String de datetime no formato ISO (ex: "2024-01-01T10:00:00Z").
+
+    Returns:
+        String formatada (ex: "01/01/2024 10:00").
+    """
+    try:
+        from datetime import datetime
+        dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+        return dt.strftime("%d/%m/%Y %H:%M")
+    except (ValueError, TypeError):
+        return dt_str
+
+
+def print_conversations_list(conversations: list[dict]) -> None:
+    """
+    Imprime lista de conversas em formato compacto.
+
+    Args:
+        conversations: Lista de conversas.
+    """
+    if not conversations:
+        print("Nenhuma conversa encontrada.")
+        return
+
+    print(f"Total de conversas: {len(conversations)}")
+    print()
+
+    for conv in conversations:
+        conv_id = conv.get("id", "desconhecido")
+        title = conv.get("title")
+        created_at = conv.get("created_at", "")
+
+        formatted_date = format_datetime(created_at) if created_at else ""
+
+        print(f"[{formatted_date}] {conv_id}")
+        if title:
+            print(f"  Título: {title}")
+        print()
+
+
+def print_messages_list(messages: list[dict]) -> None:
+    """
+    Imprime lista de mensagens em formato compacto.
+
+    Args:
+        messages: Lista de mensagens.
+    """
+    if not messages:
+        print("Nenhuma mensagem ainda.")
+        return
+
+    print(f"Total de mensagens: {len(messages)}")
+    print()
+
+    for msg in messages:
+        role = msg.get("role", "unknown")
+        content = msg.get("content", "")
+        created_at = msg.get("created_at", "")
+
+        formatted_date = format_datetime(created_at) if created_at else ""
+
+        if role == "user":
+            role_display = "Você"
+        elif role == "assistant":
+            role_display = "Assistente"
+        else:
+            role_display = role
+
+        print(f"[{formatted_date}] {role_display}: {content}")
+        print()
+
+
 def auth_me_command(args: argparse.Namespace) -> int:
     """
     Executa o comando 'auth me' para validar token.
@@ -196,6 +273,81 @@ def conversations_create_command(args: argparse.Namespace) -> int:
         print(f"Erro: {e}")
         return 1
     except PermissionError as e:
+        print(f"Erro: {e}")
+        return 1
+    except BackendError as e:
+        print(f"Erro: {e}")
+        return 1
+    except ConnectionError as e:
+        print(f"Erro: {e}")
+        return 1
+    finally:
+        client.close()
+
+
+def conversations_list_command(args: argparse.Namespace) -> int:
+    """
+    Executa o comando 'conversations list' para listar conversas.
+
+    Args:
+        args: Argumentos da linha de comando.
+
+    Returns:
+        Código de saída (0 para sucesso, 1 para erro).
+    """
+    api_url = resolve_api_url(args.api_url)
+    token = resolve_token(args.token)
+
+    client = CLIClient(api_url)
+
+    try:
+        client.set_token(token)
+        conversations = client.list_conversations()
+        print_conversations_list(conversations)
+        return 0
+    except AuthError as e:
+        print(f"Erro: {e}")
+        return 1
+    except PermissionError as e:
+        print(f"Erro: {e}")
+        return 1
+    except BackendError as e:
+        print(f"Erro: {e}")
+        return 1
+    except ConnectionError as e:
+        print(f"Erro: {e}")
+        return 1
+    finally:
+        client.close()
+
+
+def messages_list_command(args: argparse.Namespace) -> int:
+    """
+    Executa o comando 'messages list' para listar mensagens de uma conversa.
+
+    Args:
+        args: Argumentos da linha de comando.
+
+    Returns:
+        Código de saída (0 para sucesso, 1 para erro).
+    """
+    api_url = resolve_api_url(args.api_url)
+    token = resolve_token(args.token)
+
+    client = CLIClient(api_url)
+
+    try:
+        client.set_token(token)
+        messages = client.list_messages(args.conversation_id)
+        print_messages_list(messages)
+        return 0
+    except AuthError as e:
+        print(f"Erro: {e}")
+        return 1
+    except PermissionError as e:
+        print(f"Erro: {e}")
+        return 1
+    except NotFoundError as e:
         print(f"Erro: {e}")
         return 1
     except BackendError as e:
@@ -514,6 +666,52 @@ def main() -> int:
         help="Título da nova conversa",
     )
 
+    # conversations list
+    conversations_list_parser = conversations_subparsers.add_parser(
+        "list",
+        help="Lista conversas recentes",
+    )
+    conversations_list_parser.add_argument(
+        "--api-url",
+        type=str,
+        help="URL do backend (padrão: http://127.0.0.1:8010 ou LABIA_CHAT_API_URL)",
+    )
+    conversations_list_parser.add_argument(
+        "--token",
+        type=str,
+        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN ou prompt sem eco)",
+    )
+
+    # Comando messages
+    messages_parser = subparsers.add_parser(
+        "messages",
+        help="Comandos de mensagens",
+    )
+    messages_subparsers = messages_parser.add_subparsers(
+        dest="messages_command", help="Comandos disponíveis"
+    )
+
+    # messages list
+    messages_list_parser = messages_subparsers.add_parser(
+        "list",
+        help="Lista mensagens de uma conversa",
+    )
+    messages_list_parser.add_argument(
+        "conversation_id",
+        type=str,
+        help="ID da conversa (UUID)",
+    )
+    messages_list_parser.add_argument(
+        "--api-url",
+        type=str,
+        help="URL do backend (padrão: http://127.0.0.1:8010 ou LABIA_CHAT_API_URL)",
+    )
+    messages_list_parser.add_argument(
+        "--token",
+        type=str,
+        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN ou prompt sem eco)",
+    )
+
     # Comando chat
     chat_parser = subparsers.add_parser(
         "chat",
@@ -593,8 +791,20 @@ def main() -> int:
     elif args.command == "conversations":
         if args.conversations_command == "create":
             return conversations_create_command(args)
+        elif args.conversations_command == "list":
+            return conversations_list_command(args)
         else:
             conversations_parser.print_help()
+            return 0
+
+    elif args.command == "messages":
+        if args.messages_command == "list":
+            if not args.conversation_id:
+                print("Erro: conversation_id é obrigatório.")
+                return 1
+            return messages_list_command(args)
+        else:
+            messages_parser.print_help()
             return 0
 
     elif args.command == "chat":

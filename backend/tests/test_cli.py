@@ -10,11 +10,18 @@ from labia_chat.cli import (
     chat_command,
     chat_send_command,
     conversations_create_command,
+    conversations_list_command,
     main,
+    messages_list_command,
     resolve_api_url,
     resolve_token,
 )
-from labia_chat.cli_client import CLIClient
+from labia_chat.cli_client import (
+    AuthError,
+    CLIClient,
+    NotFoundError,
+    PermissionError,
+)
 
 
 class TestResolveApiUrl:
@@ -1009,6 +1016,198 @@ class TestChatSendCommand:
             assert result == 1
 
 
+class TestConversationsListCommand:
+    """Testes do comando 'conversations list'."""
+
+    def test_conversations_list_success(self) -> None:
+        """Testa 'conversations list' com sucesso."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="test-token",
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.list_conversations.return_value = [
+                {
+                    "id": "123e4567-e89b-12d3-a456-426614174000",
+                    "title": "Conversa 1",
+                    "created_at": "2024-01-01T10:00:00Z",
+                    "updated_at": "2024-01-01T10:00:00Z",
+                    "archived_at": None,
+                },
+                {
+                    "id": "890abc12-def3-4567-8901-234567890abc",
+                    "title": "Conversa 2",
+                    "created_at": "2024-01-02T11:00:00Z",
+                    "updated_at": "2024-01-02T11:00:00Z",
+                    "archived_at": None,
+                },
+            ]
+
+            result = conversations_list_command(args)
+
+            assert result == 0
+            mock_client.list_conversations.assert_called_once()
+
+    def test_conversations_list_empty(self) -> None:
+        """Testa 'conversations list' sem conversas."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="test-token",
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.list_conversations.return_value = []
+
+            result = conversations_list_command(args)
+
+            assert result == 0
+
+    def test_conversations_list_auth_error(self) -> None:
+        """Testa 'conversations list' com erro de autenticação."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="invalid-token",
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.list_conversations.side_effect = AuthError(
+                "Token inválido ou expirado"
+            )
+
+            result = conversations_list_command(args)
+
+            assert result == 1
+
+    def test_conversations_list_permission_error(self) -> None:
+        """Testa 'conversations list' com erro de permissão."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="no-permission-token",
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.list_conversations.side_effect = PermissionError(
+                "Sem permissão chat_vllm"
+            )
+
+            result = conversations_list_command(args)
+
+            assert result == 1
+
+
+class TestMessagesListCommand:
+    """Testes do comando 'messages list'."""
+
+    def test_messages_list_success(self) -> None:
+        """Testa 'messages list' com sucesso."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="test-token",
+            conversation_id="123e4567-e89b-12d3-a456-426614174000",
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.list_messages.return_value = [
+                {
+                    "id": "msg-1",
+                    "conversation_id": "123e4567-e89b-12d3-a456-426614174000",
+                    "role": "user",
+                    "content": "Olá!",
+                    "sequence_index": 0,
+                    "model": None,
+                    "metadata": {},
+                    "created_at": "2024-01-01T10:00:00Z",
+                },
+                {
+                    "id": "msg-2",
+                    "conversation_id": "123e4567-e89b-12d3-a456-426614174000",
+                    "role": "assistant",
+                    "content": "Olá! Como posso ajudar?",
+                    "sequence_index": 1,
+                    "model": "qwen-coder-next",
+                    "metadata": {},
+                    "created_at": "2024-01-01T10:00:01Z",
+                },
+            ]
+
+            result = messages_list_command(args)
+
+            assert result == 0
+            mock_client.list_messages.assert_called_once_with(
+                "123e4567-e89b-12d3-a456-426614174000"
+            )
+
+    def test_messages_list_empty(self) -> None:
+        """Testa 'messages list' sem mensagens."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="test-token",
+            conversation_id="123e4567-e89b-12d3-a456-426614174000",
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.list_messages.return_value = []
+
+            result = messages_list_command(args)
+
+            assert result == 0
+
+    def test_messages_list_not_found_error(self) -> None:
+        """Testa 'messages list' com conversa não encontrada."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="test-token",
+            conversation_id="nonexistent",
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.list_messages.side_effect = NotFoundError(
+                "Conversa não encontrada"
+            )
+
+            result = messages_list_command(args)
+
+            assert result == 1
+
+    def test_messages_list_missing_conversation_id(self) -> None:
+        """Testa 'messages list' sem conversation_id."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="test-token",
+            conversation_id=None,
+        )
+
+        # Simula o comportamento do argparse que exige conversation_id
+        # O argparse já valida isso antes de chamar o command
+        result = messages_list_command(args)
+
+        # Como o argparse já validou, este teste garante que o command
+        # não quebra com None, mas o argparse já impede isso
+        assert result == 1
+
+
 class TestMainSmokeCommands:
     """Testes da função main."""
 
@@ -1052,6 +1251,47 @@ class TestMainSmokeCommands:
 
                     assert result == 0
                     mock_create.assert_called_once_with(args)
+
+    def test_main_conversations_list_command(self) -> None:
+        """Testa main com comando 'conversations list'."""
+        with patch("labia_chat.cli.conversations_list_command") as mock_list:
+            mock_list.return_value = 0
+
+            with patch("sys.argv", ["labia-chat", "conversations", "list"]):
+                with patch("argparse.ArgumentParser.parse_args") as mock_parse:
+                    args = argparse.Namespace(
+                        command="conversations",
+                        conversations_command="list",
+                        api_url=None,
+                        token=None,
+                    )
+                    mock_parse.return_value = args
+
+                    result = main()
+
+                    assert result == 0
+                    mock_list.assert_called_once_with(args)
+
+    def test_main_messages_list_command(self) -> None:
+        """Testa main com comando 'messages list'."""
+        with patch("labia_chat.cli.messages_list_command") as mock_list:
+            mock_list.return_value = 0
+
+            with patch("sys.argv", ["labia-chat", "messages", "list", "conv-id"]):
+                with patch("argparse.ArgumentParser.parse_args") as mock_parse:
+                    args = argparse.Namespace(
+                        command="messages",
+                        messages_command="list",
+                        conversation_id="conv-id",
+                        api_url=None,
+                        token=None,
+                    )
+                    mock_parse.return_value = args
+
+                    result = main()
+
+                    assert result == 0
+                    mock_list.assert_called_once_with(args)
 
     def test_main_chat_send_command(self) -> None:
         """Testa main com comando 'chat send'."""

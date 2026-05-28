@@ -491,6 +491,113 @@ class TestCLIClientGetConversation:
         assert "Conversa não encontrada" in str(exc_info.value)
 
 
+class TestCLIClientListConversations:
+    """Testes de listagem de conversas."""
+
+    def test_list_conversations_success(self) -> None:
+        """Testa listagem de conversas bem-sucedida."""
+        conv_data = [
+            {
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "title": "Conversa 1",
+                "metadata": {},
+                "created_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z",
+                "archived_at": None,
+            },
+            {
+                "id": "890abc12-def3-4567-8901-234567890abc",
+                "title": "Conversa 2",
+                "metadata": {},
+                "created_at": "2024-01-02T00:00:00Z",
+                "updated_at": "2024-01-02T00:00:00Z",
+                "archived_at": None,
+            },
+        ]
+
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.status_code = 200
+            response.json.return_value = conv_data
+            mock_client.get.return_value = response
+            mock_get_client.return_value = mock_client
+
+            result = client.list_conversations()
+
+        assert len(result) == 2
+        assert result[0]["id"] == "123e4567-e89b-12d3-a456-426614174000"
+        assert result[1]["title"] == "Conversa 2"
+        mock_client.get.assert_called_once_with("/chat/conversations")
+
+    def test_list_conversations_empty(self) -> None:
+        """Testa listagem de conversas sem resultados."""
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.status_code = 200
+            response.json.return_value = []
+            mock_client.get.return_value = response
+            mock_get_client.return_value = mock_client
+
+            result = client.list_conversations()
+
+        assert len(result) == 0
+        mock_client.get.assert_called_once_with("/chat/conversations")
+
+    def test_list_conversations_401(self) -> None:
+        """Testa listagem de conversas com token inválido (401)."""
+        client = CLIClient("http://example.com")
+        client.set_token("invalid-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.status_code = 401
+            response.json.return_value = {"detail": "Not authenticated"}
+            error = httpx.HTTPStatusError(
+                "401 Unauthorized",
+                request=MagicMock(),
+                response=response,
+            )
+            mock_client.get.side_effect = error
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(AuthError) as exc_info:
+                client.list_conversations()
+
+        assert "Token inválido ou expirado" in str(exc_info.value)
+
+    def test_list_conversations_403(self) -> None:
+        """Testa listagem de conversas sem permissão (403)."""
+        client = CLIClient("http://example.com")
+        client.set_token("no-permission-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.status_code = 403
+            response.json.return_value = {"detail": "Forbidden"}
+            error = httpx.HTTPStatusError(
+                "403 Forbidden",
+                request=MagicMock(),
+                response=response,
+            )
+            mock_client.get.side_effect = error
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(PermissionError) as exc_info:
+                client.list_conversations()
+
+        assert "sem permissão chat_vllm" in str(exc_info.value)
+
+
 class TestCLIClientClose:
     """Testes de fechamento do cliente."""
 

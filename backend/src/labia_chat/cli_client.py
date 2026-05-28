@@ -141,6 +141,41 @@ class CLIClient:
         except httpx.NetworkError as exc:
             raise ConnectionError(f"Falha de conexão com o backend: {exc}")
 
+    def list_conversations(self) -> list[dict]:
+        """
+        Lista conversas do usuário via GET /chat/conversations.
+
+        Returns:
+            list[dict]: Lista de conversas.
+
+        Raises:
+            AuthError: Se o token for inválido (401).
+            PermissionError: Se o usuário não tiver permissão (403).
+            BackendError: Se houver erro no backend (502).
+            ConnectionError: Se não conseguir conectar ao backend.
+        """
+        try:
+            client = self._get_client()
+            response = client.get("/chat/conversations")
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 401:
+                raise AuthError(
+                    "Token inválido ou expirado. Gere um novo token AI-Scope."
+                )
+            elif exc.response.status_code == 403:
+                raise PermissionError(
+                    "Usuário autenticado, mas sem permissão chat_vllm."
+                )
+            elif exc.response.status_code == 502:
+                raise BackendError("Backend não conseguiu obter resposta do modelo.")
+            raise
+        except httpx.TimeoutException:
+            raise ConnectionError("Timeout ao conectar ao backend.")
+        except httpx.NetworkError as exc:
+            raise ConnectionError(f"Falha de conexão com o backend: {exc}")
+
     def list_messages(self, conversation_id: str) -> list[dict]:
         """
         Lista mensagens de uma conversa via GET /chat/conversations/{id}/messages.
