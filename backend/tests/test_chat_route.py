@@ -35,6 +35,8 @@ class FakeChatPersistenceService:
         self.conversations: list = []
         self.create_calls: list = []
         self.list_calls: list = []
+        self.get_calls: list = []
+        self.archive_calls: list = []
 
     def create_conversation_sync(
         self, user_id: str, title: str | None = None, metadata: dict | None = None
@@ -79,6 +81,36 @@ class FakeChatPersistenceService:
             for c in self.conversations
             if c.user_id == user_id and (include_archived or c.archived_at is None)
         ]
+
+    async def get_conversation_for_user(
+        self, conversation_id: str, user_id: str
+    ):
+        """Simula obtenção de conversa por ID e usuário."""
+        self.get_calls.append(
+            {"conversation_id": conversation_id, "user_id": user_id}
+        )
+        for c in self.conversations:
+            # Convert UUID to string for comparison
+            conv_id_str = str(c.id) if hasattr(c.id, '__str__') else c.id
+            if conv_id_str == conversation_id and c.user_id == user_id:
+                return c
+        return None
+
+    async def archive_conversation_for_user(
+        self, conversation_id: str, user_id: str
+    ):
+        """Simula arquivamento de conversa."""
+        self.archive_calls.append(
+            {"conversation_id": conversation_id, "user_id": user_id}
+        )
+        for c in self.conversations:
+            # Convert UUID to string for comparison
+            conv_id_str = str(c.id) if hasattr(c.id, '__str__') else c.id
+            if conv_id_str == conversation_id and c.user_id == user_id:
+                from datetime import datetime
+                c.archived_at = datetime.now()
+                return c
+        return None
 
 
 def test_get_conversations_without_authorization() -> None:
@@ -344,3 +376,252 @@ def test_get_conversations_returns_fake_with_metadata() -> None:
     finally:
         app.dependency_overrides.clear()
 
+
+def test_get_conversation_without_authorization() -> None:
+    """Testa GET /chat/conversations/{id} sem Authorization -> 401."""
+    response = client.get("/chat/conversations/some-id")
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Not authenticated"
+
+
+def test_get_conversation_returns_200_and_response_model() -> None:
+    """Testa GET /chat/conversations/{id} retorna 200 e ConversationResponse."""
+    internal_id = str(uuid4())
+    fake_user = FakeChatUser(id=internal_id, adss_id="adss-user-123")
+    fake_service = FakeChatPersistenceService()
+
+    # Cria uma conversa para o usuário
+    created_conv = fake_service.create_conversation_sync(
+        user_id=internal_id,
+        title="Test Conversation",
+        metadata={"key": "value"},
+    )
+
+    def fake_get_current_chat_user_override():
+        return fake_user
+
+    def fake_get_chat_persistence_service_override():
+        return fake_service
+
+    app.dependency_overrides[get_current_chat_user] = (
+        fake_get_current_chat_user_override
+    )
+    app.dependency_overrides[get_chat_persistence_service] = (
+        fake_get_chat_persistence_service_override
+    )
+
+    try:
+        response = client.get(
+            f"/chat/conversations/{created_conv.id}",
+            headers={"Authorization": "Bearer valid-token"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(created_conv.id)
+        assert data["title"] == "Test Conversation"
+        assert data["metadata"] == {"key": "value"}
+        assert "created_at" in data
+        assert "updated_at" in data
+        assert "archived_at" in data
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_conversation_uses_chat_user_id_internal() -> None:
+    """Testa que GET /conversations/{id} usa chat_user.id interno."""
+    internal_id = str(uuid4())
+    adss_id = "adss-user-123"
+    fake_user = FakeChatUser(id=internal_id, adss_id=adss_id)
+    fake_service = FakeChatPersistenceService()
+
+    # Cria uma conversa para o usuário
+    created_conv = fake_service.create_conversation_sync(
+        user_id=internal_id,
+        title="Test Conversation",
+        metadata={},
+    )
+
+    def fake_get_current_chat_user_override():
+        return fake_user
+
+    def fake_get_chat_persistence_service_override():
+        return fake_service
+
+    app.dependency_overrides[get_current_chat_user] = (
+        fake_get_current_chat_user_override
+    )
+    app.dependency_overrides[get_chat_persistence_service] = (
+        fake_get_chat_persistence_service_override
+    )
+
+    try:
+        client.get(
+            f"/chat/conversations/{created_conv.id}",
+            headers={"Authorization": "Bearer valid-token"},
+        )
+        # Verifica que get_calls foi feita com o id interno, não adss_id
+        assert len(fake_service.get_calls) == 1
+        assert fake_service.get_calls[0]["user_id"] == internal_id
+        assert fake_service.get_calls[0]["user_id"] != adss_id
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_conversation_returns_404_when_service_returns_none() -> None:
+    """Testa GET /conversations/{id} retorna 404 quando service retorna None."""
+    internal_id = str(uuid4())
+    fake_user = FakeChatUser(id=internal_id, adss_id="adss-user-123")
+    fake_service = FakeChatPersistenceService()
+    # Não cria nenhuma conversa, então get_conversation_for_user retornará None
+
+    def fake_get_current_chat_user_override():
+        return fake_user
+
+    def fake_get_chat_persistence_service_override():
+        return fake_service
+
+    app.dependency_overrides[get_current_chat_user] = (
+        fake_get_current_chat_user_override
+    )
+    app.dependency_overrides[get_chat_persistence_service] = (
+        fake_get_chat_persistence_service_override
+    )
+
+    try:
+        response = client.get(
+            "/chat/conversations/non-existent-id",
+            headers={"Authorization": "Bearer valid-token"},
+        )
+        assert response.status_code == 404
+        assert (
+            response.json()["detail"]
+            == "Conversa não encontrada ou não pertence ao usuário"
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_archive_conversation_returns_200_and_response_model() -> None:
+    """Testa POST /conversations/{id}/archive retorna 200 e ConversationResponse."""
+    internal_id = str(uuid4())
+    fake_user = FakeChatUser(id=internal_id, adss_id="adss-user-123")
+    fake_service = FakeChatPersistenceService()
+
+    # Cria uma conversa para o usuário
+    created_conv = fake_service.create_conversation_sync(
+        user_id=internal_id,
+        title="Test Conversation",
+        metadata={"key": "value"},
+    )
+
+    def fake_get_current_chat_user_override():
+        return fake_user
+
+    def fake_get_chat_persistence_service_override():
+        return fake_service
+
+    app.dependency_overrides[get_current_chat_user] = (
+        fake_get_current_chat_user_override
+    )
+    app.dependency_overrides[get_chat_persistence_service] = (
+        fake_get_chat_persistence_service_override
+    )
+
+    try:
+        response = client.post(
+            f"/chat/conversations/{created_conv.id}/archive",
+            headers={"Authorization": "Bearer valid-token"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["id"] == str(created_conv.id)
+        assert data["title"] == "Test Conversation"
+        assert data["metadata"] == {"key": "value"}
+        assert "created_at" in data
+        assert "updated_at" in data
+        assert "archived_at" in data
+        # Verifica que a conversa foi arquivada
+        assert data["archived_at"] is not None
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_archive_conversation_uses_chat_user_id_internal() -> None:
+    """Testa que POST /archive usa chat_user.id interno."""
+    internal_id = str(uuid4())
+    adss_id = "adss-user-123"
+    fake_user = FakeChatUser(id=internal_id, adss_id=adss_id)
+    fake_service = FakeChatPersistenceService()
+
+    # Cria uma conversa para o usuário
+    created_conv = fake_service.create_conversation_sync(
+        user_id=internal_id,
+        title="Test Conversation",
+        metadata={},
+    )
+
+    def fake_get_current_chat_user_override():
+        return fake_user
+
+    def fake_get_chat_persistence_service_override():
+        return fake_service
+
+    app.dependency_overrides[get_current_chat_user] = (
+        fake_get_current_chat_user_override
+    )
+    app.dependency_overrides[get_chat_persistence_service] = (
+        fake_get_chat_persistence_service_override
+    )
+
+    try:
+        client.post(
+            f"/chat/conversations/{created_conv.id}/archive",
+            headers={"Authorization": "Bearer valid-token"},
+        )
+        # Verifica que archive_calls foi feita com o id interno, não adss_id
+        assert len(fake_service.archive_calls) == 1
+        assert fake_service.archive_calls[0]["user_id"] == internal_id
+        assert fake_service.archive_calls[0]["user_id"] != adss_id
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_archive_conversation_returns_404_when_service_returns_none() -> None:
+    """Testa POST /archive retorna 404 quando service retorna None."""
+    internal_id = str(uuid4())
+    fake_user = FakeChatUser(id=internal_id, adss_id="adss-user-123")
+    fake_service = FakeChatPersistenceService()
+    # Não cria nenhuma conversa, então archive_conversation_for_user retornará None
+
+    def fake_get_current_chat_user_override():
+        return fake_user
+
+    def fake_get_chat_persistence_service_override():
+        return fake_service
+
+    app.dependency_overrides[get_current_chat_user] = (
+        fake_get_current_chat_user_override
+    )
+    app.dependency_overrides[get_chat_persistence_service] = (
+        fake_get_chat_persistence_service_override
+    )
+
+    try:
+        response = client.post(
+            "/chat/conversations/non-existent-id/archive",
+            headers={"Authorization": "Bearer valid-token"},
+        )
+        assert response.status_code == 404
+        assert (
+            response.json()["detail"]
+            == "Conversa não encontrada ou não pertence ao usuário"
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_archive_conversation_without_authorization() -> None:
+    """Testa POST /conversations/{id}/archive sem Authorization -> 401."""
+    response = client.post("/chat/conversations/some-id/archive")
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Not authenticated"
