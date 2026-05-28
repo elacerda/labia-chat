@@ -20,7 +20,10 @@ class ChatCompletionError(Exception):
 class ChatCompletionNotFoundError(ChatCompletionError):
     """Erro quando a conversa não é encontrada ou não pertence ao usuário."""
 
-    def __init__(self, message: str = "Conversation not found or does not belong to user"):
+    def __init__(
+        self,
+        message: str = "Conversation not found or does not belong to user",
+    ):
         self.message = message
         super().__init__(self.message)
 

@@ -1625,9 +1625,17 @@ def test_generate_response_returns_404_when_conversation_not_found() -> None:
     fake_user = FakeChatUser(id=internal_id, adss_id="adss-user-123")
 
     class FakeChatCompletionServiceWithNotFound:
-        async def complete(self, conversation_id: str, user_id: str, content: str, model: str | None = None):
+        async def complete(
+            self,
+            conversation_id: str,
+            user_id: str,
+            content: str,
+            model: str | None = None,
+        ):
             from labia_chat.services.chat_completion import ChatCompletionNotFoundError
-            raise ChatCompletionNotFoundError("Conversation not found or does not belong to user")
+            raise ChatCompletionNotFoundError(
+                "Conversation not found or does not belong to user"
+            )
 
     fake_service = FakeChatCompletionServiceWithNotFound()
 
@@ -1676,8 +1684,16 @@ def test_generate_response_returns_502_on_generation_error() -> None:
     fake_user = FakeChatUser(id=internal_id, adss_id="adss-user-123")
 
     class FakeChatCompletionServiceWithGenerationError:
-        async def complete(self, conversation_id: str, user_id: str, content: str, model: str | None = None):
-            from labia_chat.services.chat_completion import ChatCompletionGenerationError
+        async def complete(
+            self,
+            conversation_id: str,
+            user_id: str,
+            content: str,
+            model: str | None = None,
+        ):
+            from labia_chat.services.chat_completion import (
+                ChatCompletionGenerationError,
+            )
             raise ChatCompletionGenerationError("Failed to generate response")
 
     fake_service = FakeChatCompletionServiceWithGenerationError()
@@ -1848,7 +1864,10 @@ def test_generate_response_with_invalid_uuid_returns_422() -> None:
 
 def test_generate_response_without_authorization() -> None:
     """Testa POST /chat/conversations/{id}/generate sem Authorization -> 401."""
-    response = client.post("/chat/conversations/some-id/generate", json={"content": "Test"})
+    response = client.post(
+        "/chat/conversations/some-id/generate",
+        json={"content": "Test"},
+    )
     assert response.status_code == 401
     assert response.json()["detail"] == "Not authenticated"
 
