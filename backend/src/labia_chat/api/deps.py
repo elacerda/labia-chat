@@ -10,6 +10,7 @@ from labia_chat.core.errors import (
 from labia_chat.models.user import ChatUser
 from labia_chat.schemas.user import AuthenticatedUser
 from labia_chat.services.auth_service import AuthService
+from labia_chat.services.chat_persistence import ChatPersistenceService
 from labia_chat.services.chat_user_sync import ChatUserSyncService
 
 
@@ -29,6 +30,15 @@ def get_chat_user_sync_service() -> ChatUserSyncService:
     Pode ser sobrescrita via dependency_overrides nos testes.
     """
     return ChatUserSyncService()
+
+
+def get_chat_persistence_service() -> ChatPersistenceService:
+    """
+    Retorna instância de ChatPersistenceService.
+
+    Pode ser sobrescrita via dependency_overrides nos testes.
+    """
+    return ChatPersistenceService()
 
 
 def extract_bearer_token(
