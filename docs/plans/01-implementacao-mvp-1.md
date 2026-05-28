@@ -1,3 +1,10 @@
+# Aviso
+
+Este documento é histórico e descreve o primeiro bloco de implementação do projeto.
+O roadmap atual está em `docs/roadmap-backend-to-frontend.md`.
+
+---
+
 # 01 — Implementação do primeiro MVP
 
 Este documento detalha a primeira fatia de implementação recomendada.

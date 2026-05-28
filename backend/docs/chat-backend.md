@@ -479,3 +479,23 @@ python -m ruff check src/ tests/
 ```bash
 cd backend
 python -m alembic current
+
+---
+
+## CLI de Chat
+
+O próximo cliente oficial de validação do backend será o CLI de chat.
+
+Objetivo:
+
+- validar o backend como cliente real antes do frontend;
+- testar autenticação, criação de conversa, geração persistente e leitura de histórico;
+- servir como ferramenta de smoke test operacional.
+
+Documentação do CLI:
+
+- `docs/cli-chat.md`
+
+O CLI deve chamar apenas o backend. Ele não deve chamar o vLLM diretamente.
+
+O histórico de conversas e mensagens deve continuar tendo o backend/PostgreSQL como fonte de verdade. O CLI não deve persistir mensagens localmente.

@@ -1,40 +1,88 @@
 # labia-chat
 
-Backend FastAPI para chat com modelos locais servidos via vLLM, integrado à autenticação do AI-Scope.
+Backend FastAPI para chat com modelos locais servidos via vLLM, integrado à autenticação do AI-Scope/ADSS.
 
 ## Estado do projeto
 
-Este repositório está sendo reestruturado.
+O backend mínimo de chat persistente já está implementado.
 
-- O projeto Next.js original foi preservado em `legacy/nextjs-prototype/`.
-- O novo backend será desenvolvido em `backend/`.
-- As especificações atuais estão em `docs/specs/`.
-- O plano de MVPs está em `docs/plans/`.
+O projeto possui atualmente:
 
-## MVP atual
+- autenticação via token AI-Scope/ADSS;
+- sincronização de usuário autenticado no banco local;
+- persistência de conversas e mensagens;
+- endpoints REST para conversas e mensagens;
+- integração com vLLM OpenAI-compatible;
+- endpoint diagnóstico de geração;
+- endpoint de geração persistente;
+- documentação operacional do backend.
 
-O primeiro MVP implementará:
+A decisão atual é finalizar completamente o backend antes de iniciar o frontend. O próximo bloco de desenvolvimento é um CLI de chat para validar o backend como cliente real.
 
-- backend FastAPI;
-- configuração via `.env`;
-- endpoint `/health`;
-- validação de token do AI-Scope;
-- autorização por role `chat_vllm`;
-- teste manual com `access_token`.
+## Estrutura principal
 
-Veja `docs/plans/01-implementacao-mvp-1.md`.
+- `backend/` — backend FastAPI.
+- `backend/docs/chat-backend.md` — documentação operacional do backend.
+- `docs/plans/` — planos históricos de implementação.
+- `docs/roadmap-backend-to-frontend.md` — roadmap atualizado do backend até o frontend.
+- `docs/cli-chat.md` — especificação inicial do CLI.
+- `docs/backend-completion-checklist.md` — checklist para fechamento do backend.
+- `docs/frontend-handoff.md` — critérios para iniciar o frontend depois do backend freeze.
+- `legacy/nextjs-prototype/` — protótipo Next.js legado preservado.
 
-## Documentação do Backend de Chat
+## Documentação
 
-Para documentação operacional completa do backend de chat (como rodar, testar endpoints, variáveis de ambiente, troubleshooting), veja:
+### Backend
 
-**[backend/docs/chat-backend.md](backend/docs/chat-backend.md)**
+Veja:
 
-Esta documentação cobre:
+- [backend/docs/chat-backend.md](backend/docs/chat-backend.md)
 
-- Visão geral do fluxo completo (AI-Scope → backend → vLLM → persistência)
-- Variáveis de ambiente (DATABASE_URL, VLLM_*, ADSS_*)
-- Avisos de segurança (tokens, credenciais)
-- Como rodar o backend
-- Como testar endpoints via curl
-- Problemas comuns e soluções
+Esse documento cobre:
+
+- fluxo AI-Scope → backend → vLLM → persistência;
+- variáveis de ambiente;
+- avisos de segurança;
+- como rodar o backend;
+- como testar endpoints via curl;
+- troubleshooting.
+
+### Roadmap atual
+
+Veja:
+
+- [docs/roadmap-backend-to-frontend.md](docs/roadmap-backend-to-frontend.md)
+
+### CLI
+
+Veja:
+
+- [docs/cli-chat.md](docs/cli-chat.md)
+
+### Handoff para frontend
+
+Veja:
+
+- [docs/frontend-handoff.md](docs/frontend-handoff.md)
+
+## Validação padrão do backend
+
+    cd backend
+    python -m pytest tests/ -v
+    python -m ruff check src/ tests/
+    python -m alembic current
+
+## Portas locais adotadas
+
+- `8000` — vLLM local OpenAI-compatible.
+- `8010` — backend FastAPI `labia-chat`.
+- `3000` — futuro frontend dev.
+
+## Segurança
+
+Nunca commite:
+
+- token AI-Scope real;
+- `VLLM_API_KEY` real;
+- `DATABASE_URL` real com senha;
+- arquivos `.env` locais.
