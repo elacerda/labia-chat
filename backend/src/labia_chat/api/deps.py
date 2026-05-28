@@ -92,7 +92,11 @@ async def get_chat_generation_service() -> AsyncIterator[ChatGenerationService]:
         timeout=settings.vllm_timeout_seconds,
         api_key=settings.vllm_api_key,
     ) as vllm_client:
-        yield ChatGenerationService(vllm_client=vllm_client)
+        yield ChatGenerationService(
+            vllm_client=vllm_client,
+            temperature=settings.vllm_temperature,
+            max_tokens=settings.vllm_max_tokens,
+        )
 
 
 async def get_chat_completion_service(
