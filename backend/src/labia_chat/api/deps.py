@@ -14,6 +14,7 @@ from labia_chat.core.errors import (
 from labia_chat.models.user import ChatUser
 from labia_chat.schemas.user import AuthenticatedUser
 from labia_chat.services.auth_service import AuthService
+from labia_chat.services.chat_completion import ChatCompletionService
 from labia_chat.services.chat_generation import ChatGenerationService
 from labia_chat.services.chat_persistence import ChatPersistenceService
 from labia_chat.services.chat_user_sync import ChatUserSyncService
@@ -92,6 +93,32 @@ async def get_chat_generation_service() -> AsyncIterator[ChatGenerationService]:
         api_key=settings.vllm_api_key,
     ) as vllm_client:
         yield ChatGenerationService(vllm_client=vllm_client)
+
+
+async def get_chat_completion_service(
+    persistence_service: ChatPersistenceService = Depends(get_chat_persistence_service),
+    generation_service: ChatGenerationService = Depends(get_chat_generation_service),
+) -> ChatCompletionService:
+    """
+    Retorna instância de ChatCompletionService com services injetados.
+
+    Injeta:
+    - ChatPersistenceService via get_chat_persistence_service
+    - ChatGenerationService via get_chat_generation_service (com VLLMClient gerenciado)
+
+    Pode ser sobrescrita via dependency_overrides nos testes.
+
+    Args:
+        persistence_service: Instância de ChatPersistenceService (injetada).
+        generation_service: Instância de ChatGenerationService (injetada).
+
+    Returns:
+        ChatCompletionService: Serviço de geração persistente de chat.
+    """
+    return ChatCompletionService(
+        persistence_service=persistence_service,
+        generation_service=generation_service,
+    )
 
 
 def extract_bearer_token(
