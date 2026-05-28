@@ -7,8 +7,10 @@ from labia_chat.core.errors import (
     AuthorizationError,
     ExternalServiceError,
 )
+from labia_chat.models.user import ChatUser
 from labia_chat.schemas.user import AuthenticatedUser
 from labia_chat.services.auth_service import AuthService
+from labia_chat.services.chat_persistence import ChatPersistenceService
 from labia_chat.services.chat_user_sync import ChatUserSyncService
 
 
@@ -28,6 +30,15 @@ def get_chat_user_sync_service() -> ChatUserSyncService:
     Pode ser sobrescrita via dependency_overrides nos testes.
     """
     return ChatUserSyncService()
+
+
+def get_chat_persistence_service() -> ChatPersistenceService:
+    """
+    Retorna instância de ChatPersistenceService.
+
+    Pode ser sobrescrita via dependency_overrides nos testes.
+    """
+    return ChatPersistenceService()
 
 
 def extract_bearer_token(
@@ -69,27 +80,31 @@ def extract_bearer_token(
     return token
 
 
-async def get_current_user(
-    authorization: str | None = Header(None, alias="Authorization"),
-    auth_service: AuthService = Depends(get_auth_service),
-    chat_user_sync_service: ChatUserSyncService = Depends(get_chat_user_sync_service),
-) -> AuthenticatedUser:
+async def _validate_and_sync_user(
+    authorization: str | None,
+    auth_service: AuthService,
+    chat_user_sync_service: ChatUserSyncService,
+) -> tuple[AuthenticatedUser, ChatUser]:
     """
-    Dependência para obter usuário autenticado.
+    Valida token e sincroniza usuário local.
+
+    Esta função encapsula a lógica de:
+    - Extrair Bearer token
+    - Validar token via AuthService
+    - Sincronizar usuário via ChatUserSyncService
 
     Args:
-        authorization: Header Authorization (injetado pelo FastAPI).
-        auth_service: Instância de AuthService (injetada por Depends).
-        chat_user_sync_service: Instância de ChatUserSyncService (injetada por Depends).
+        authorization: Header Authorization.
+        auth_service: Instância de AuthService.
+        chat_user_sync_service: Instância de ChatUserSyncService.
 
     Returns:
-        AuthenticatedUser se o token for válido.
+        Tuple[AuthenticatedUser, ChatUser]: Usuário autenticado e usuário local.
 
     Raises:
         HTTPException 401: Se o token for inválido ou ausente.
         HTTPException 403: Se o usuário não tiver permissão.
-        HTTPException 503: Se o serviço externo estiver indisponível ou
-        falha ao sincronizar.
+        HTTPException 503: Se o serviço externo estiver indisponível.
     """
     token = extract_bearer_token(authorization)
 
@@ -113,11 +128,68 @@ async def get_current_user(
 
     # Sincroniza usuário no banco após validação bem-sucedida
     try:
-        await chat_user_sync_service.sync(user)
+        chat_user = await chat_user_sync_service.sync(user)
     except ExternalServiceError as exc:
         raise HTTPException(
             status_code=503,
             detail=exc.message,
         ) from exc
 
+    return user, chat_user
+
+
+async def get_current_user(
+    authorization: str | None = Header(None, alias="Authorization"),
+    auth_service: AuthService = Depends(get_auth_service),
+    chat_user_sync_service: ChatUserSyncService = Depends(get_chat_user_sync_service),
+) -> AuthenticatedUser:
+    """
+    Dependência para obter usuário autenticado.
+
+    Args:
+        authorization: Header Authorization (injetado pelo FastAPI).
+        auth_service: Instância de AuthService (injetada por Depends).
+        chat_user_sync_service: Instância de ChatUserSyncService (injetada por Depends).
+
+    Returns:
+        AuthenticatedUser se o token for válido.
+
+    Raises:
+        HTTPException 401: Se o token for inválido ou ausente.
+        HTTPException 403: Se o usuário não tiver permissão.
+        HTTPException 503: Se o serviço externo estiver indisponível.
+    """
+    user, _ = await _validate_and_sync_user(
+        authorization, auth_service, chat_user_sync_service
+    )
     return user
+
+
+async def get_current_chat_user(
+    authorization: str | None = Header(None, alias="Authorization"),
+    auth_service: AuthService = Depends(get_auth_service),
+    chat_user_sync_service: ChatUserSyncService = Depends(get_chat_user_sync_service),
+) -> ChatUser:
+    """
+    Dependência para obter usuário local (ChatUser) autenticado.
+
+    Esta função é usada por endpoints de chat que precisam do ID interno
+    do usuário (ChatUser.id) para garantir ownership de conversas e mensagens.
+
+    Args:
+        authorization: Header Authorization (injetado pelo FastAPI).
+        auth_service: Instância de AuthService (injetada por Depends).
+        chat_user_sync_service: Instância de ChatUserSyncService (injetada por Depends).
+
+    Returns:
+        ChatUser: Usuário local sincronizado com o ADSS.
+
+    Raises:
+        HTTPException 401: Se o token for inválido ou ausente.
+        HTTPException 403: Se o usuário não tiver permissão.
+        HTTPException 503: Se o serviço externo estiver indisponível.
+    """
+    _, chat_user = await _validate_and_sync_user(
+        authorization, auth_service, chat_user_sync_service
+    )
+    return chat_user

@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from labia_chat.core.errors import ExternalServiceError
+from labia_chat.models.user import ChatUser
 from labia_chat.schemas.user import AuthenticatedUser
 from labia_chat.services.chat_user_sync import ChatUserSyncService
 
@@ -25,8 +26,18 @@ class FakeChatUserRepository:
         self.upsert_calls.append((session, user))
         if self.error:
             raise self.error
-        # Retorna um ChatUser fake
-        return MagicMock(id=uuid.uuid4(), adss_id=user.id)
+        # Retorna um ChatUser fake com id local e adss_id
+        return ChatUser(
+            id=uuid.uuid4(),
+            adss_id=uuid.UUID(user.id),
+            username=user.username,
+            email=user.email,
+            full_name=user.full_name,
+            is_active=user.is_active,
+            is_staff=user.is_staff,
+            is_superuser=user.is_superuser,
+            roles=user.roles,
+        )
 
 
 @asynccontextmanager
@@ -60,9 +71,11 @@ class TestChatUserSyncService:
             roles=["chat_vllm"],
         )
 
-        await sync_service.sync(user)
+        result = await sync_service.sync(user)
         assert len(fake_repo.upsert_calls) == 1
         assert fake_repo.upsert_calls[0][1].username == "testuser"
+        assert isinstance(result, ChatUser)
+        assert result.username == "testuser"
 
     @pytest.mark.asyncio
     async def test_sync_updates_existing_user(self):
@@ -86,9 +99,11 @@ class TestChatUserSyncService:
             roles=["chat_vllm", "admin"],
         )
 
-        await sync_service.sync(user)
+        result = await sync_service.sync(user)
         assert len(fake_repo.upsert_calls) == 1
         assert fake_repo.upsert_calls[0][1].username == "updated_user"
+        assert isinstance(result, ChatUser)
+        assert result.username == "updated_user"
 
     @pytest.mark.asyncio
     async def test_sync_fails_on_repository_error(self):

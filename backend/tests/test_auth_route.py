@@ -2,13 +2,19 @@
 
 from fastapi.testclient import TestClient
 
-from labia_chat.api.deps import get_auth_service, get_chat_user_sync_service
+from labia_chat.api.deps import (
+    get_auth_service,
+    get_chat_user_sync_service,
+    get_current_chat_user,
+    get_current_user,
+)
 from labia_chat.core.errors import (
     AuthenticationError,
     AuthorizationError,
     ExternalServiceError,
 )
 from labia_chat.main import app
+from labia_chat.models.user import ChatUser
 from labia_chat.schemas.user import AuthenticatedUser
 
 client = TestClient(app)
@@ -92,6 +98,137 @@ def test_get_auth_me_with_valid_token_and_user() -> None:
         assert data["full_name"] == "Test User"
         assert data["is_active"] is True
         assert data["roles"] == ["public", "chat_vllm"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_current_user_returns_authenticated_user() -> None:
+    """Testa que get_current_user retorna AuthenticatedUser."""
+    mock_user = AuthenticatedUser(
+        id="user123",
+        username="testuser",
+        email="test@example.com",
+        full_name="Test User",
+        is_active=True,
+        is_staff=False,
+        is_superuser=False,
+        roles=["chat_vllm"],
+    )
+
+    def fake_get_auth_service_override():
+        return FakeAuthService(user=mock_user)
+
+    def fake_get_chat_user_sync_service_override():
+        return FakeChatUserSyncService()
+
+    app.dependency_overrides[get_auth_service] = fake_get_auth_service_override
+    app.dependency_overrides[get_chat_user_sync_service] = (
+        fake_get_chat_user_sync_service_override
+    )
+
+    try:
+        result = get_current_user.__annotations__
+        assert "return" in result
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_current_chat_user_returns_chat_user() -> None:
+    """Testa que get_current_chat_user retorna ChatUser."""
+    mock_user = AuthenticatedUser(
+        id="user123",
+        username="testuser",
+        email="test@example.com",
+        full_name="Test User",
+        is_active=True,
+        is_staff=False,
+        is_superuser=False,
+        roles=["chat_vllm"],
+    )
+    mock_chat_user = ChatUser(
+        id="chat-user-uuid",
+        adss_id="user123",
+        username="testuser",
+        email="test@example.com",
+        full_name="Test User",
+        is_active=True,
+        is_staff=False,
+        is_superuser=False,
+        roles=["chat_vllm"],
+    )
+
+    class FakeChatUserSyncServiceWithChatUser(FakeChatUserSyncService):
+        async def sync(self, user: AuthenticatedUser) -> ChatUser:
+            self.sync_calls.append(user)
+            return mock_chat_user
+
+    def fake_get_auth_service_override():
+        return FakeAuthService(user=mock_user)
+
+    def fake_get_chat_user_sync_service_override():
+        return FakeChatUserSyncServiceWithChatUser()
+
+    app.dependency_overrides[get_auth_service] = fake_get_auth_service_override
+    app.dependency_overrides[get_chat_user_sync_service] = (
+        fake_get_chat_user_sync_service_override
+    )
+
+    try:
+        result = get_current_chat_user.__annotations__
+        assert "return" in result
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_current_chat_user_sync_called_once() -> None:
+    """Testa que sync é chamado apenas uma vez por get_current_chat_user."""
+
+    class FakeChatUserSyncServiceWithChatUser(FakeChatUserSyncService):
+        async def sync(self, user: AuthenticatedUser) -> ChatUser:
+            self.sync_calls.append(user)
+            return mock_chat_user
+
+    mock_user = AuthenticatedUser(
+        id="user123",
+        username="testuser",
+        email="test@example.com",
+        full_name="Test User",
+        is_active=True,
+        is_staff=False,
+        is_superuser=False,
+        roles=["chat_vllm"],
+    )
+    mock_chat_user = ChatUser(
+        id="chat-user-uuid",
+        adss_id="user123",
+        username="testuser",
+        email="test@example.com",
+        full_name="Test User",
+        is_active=True,
+        is_staff=False,
+        is_superuser=False,
+        roles=["chat_vllm"],
+    )
+
+    sync_service = FakeChatUserSyncServiceWithChatUser()
+
+    def fake_get_auth_service_override():
+        return FakeAuthService(user=mock_user)
+
+    def fake_get_chat_user_sync_service_override():
+        return sync_service
+
+    app.dependency_overrides[get_auth_service] = fake_get_auth_service_override
+    app.dependency_overrides[get_chat_user_sync_service] = (
+        fake_get_chat_user_sync_service_override
+    )
+
+    try:
+        response = client.get(
+            "/auth/me", headers={"Authorization": "Bearer valid-token"}
+        )
+        assert response.status_code == 200
+        assert len(sync_service.sync_calls) == 1
     finally:
         app.dependency_overrides.clear()
 
