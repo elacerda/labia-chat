@@ -5,6 +5,8 @@ from labia_chat.schemas.chat import (
     ConversationResponse,
     MessageCreate,
     MessageResponse,
+    PingRequest,
+    PingResponse,
 )
 from labia_chat.schemas.user import (
     ADSSRole,
@@ -20,4 +22,6 @@ __all__ = [
     "ConversationResponse",
     "MessageCreate",
     "MessageResponse",
+    "PingRequest",
+    "PingResponse",
 ]

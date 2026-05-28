@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from labia_chat.api.deps import (
+    get_chat_generation_service,
     get_chat_persistence_service,
     get_current_chat_user,
 )
@@ -14,6 +15,12 @@ from labia_chat.schemas.chat import (
     ConversationResponse,
     MessageCreate,
     MessageResponse,
+    PingRequest,
+    PingResponse,
+)
+from labia_chat.services.chat_generation import (
+    ChatGenerationError,
+    ChatGenerationService,
 )
 from labia_chat.services.chat_persistence import ChatPersistenceService
 
@@ -241,4 +248,55 @@ async def list_messages(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=error_msg,
             )
+
+
+@router.post(
+    "/model/ping",
+    response_model=PingResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Ping do modelo vLLM",
+    description=(
+        "Endpoint diagnóstico para validar geração mínima via vLLM, "
+        "sem persistir nada."
+    ),
+)
+async def model_ping(
+    payload: PingRequest = PingRequest(),
+    chat_user: ChatUser = Depends(get_current_chat_user),
+    service: ChatGenerationService = Depends(get_chat_generation_service),
+) -> PingResponse:
+    """
+    Endpoint diagnóstico para validar geração mínima via vLLM.
+
+    Request:
+        POST /chat/model/ping
+        Authorization: Bearer <AI_SCOPE_ACCESS_TOKEN>
+        Body: { "prompt": "ping" } (opcional, default: "ping")
+
+    Response:
+        200 OK - PingResponse com a resposta do modelo
+        401 Unauthorized - Token inválido ou ausente
+        403 Forbidden - Usuário sem permissão
+        502 Bad Gateway - Falha na resposta/chamada do modelo vLLM
+        503 Service Unavailable - Serviço externo indisponível
+
+    Notas:
+        - Não cria conversa
+        - Não cria mensagem
+        - Não persiste nada
+        - Usa get_current_chat_user para autenticação
+          como os endpoints /chat existentes
+    """
+    # Monta messages no formato OpenAI
+    messages = [{"role": "user", "content": payload.prompt}]
+
+    try:
+        response_text = await service.generate(messages=messages)
+    except ChatGenerationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=exc.message,
+        ) from exc
+
+    return PingResponse(response=response_text)
 

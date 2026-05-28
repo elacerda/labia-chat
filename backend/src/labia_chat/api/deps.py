@@ -1,7 +1,11 @@
 """Dependências FastAPI para autenticação e autorização."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, Header, HTTPException
 
+from labia_chat.core.config import settings
 from labia_chat.core.errors import (
     AuthenticationError,
     AuthorizationError,
@@ -10,8 +14,10 @@ from labia_chat.core.errors import (
 from labia_chat.models.user import ChatUser
 from labia_chat.schemas.user import AuthenticatedUser
 from labia_chat.services.auth_service import AuthService
+from labia_chat.services.chat_generation import ChatGenerationService
 from labia_chat.services.chat_persistence import ChatPersistenceService
 from labia_chat.services.chat_user_sync import ChatUserSyncService
+from labia_chat.services.vllm_client import VLLMClient
 
 
 def get_auth_service() -> AuthService:
@@ -39,6 +45,53 @@ def get_chat_persistence_service() -> ChatPersistenceService:
     Pode ser sobrescrita via dependency_overrides nos testes.
     """
     return ChatPersistenceService()
+
+
+def get_vllm_client() -> VLLMClient:
+    """
+    Retorna instância de VLLMClient.
+
+    Pode ser sobrescrita via dependency_overrides nos testes.
+    """
+    return VLLMClient(api_key=settings.vllm_api_key)
+
+
+@asynccontextmanager
+async def get_vllm_service():
+    """
+    Retorna instância de ChatGenerationService com VLLMClient gerenciado.
+
+    Gerencia o ciclo de vida do VLLMClient como async context manager
+    para garantir que a conexão HTTP seja aberta e fechada corretamente.
+
+    Pode ser sobrescrita via dependency_overrides nos testes.
+
+    Yields:
+        ChatGenerationService: Serviço de geração de chat.
+    """
+    async with VLLMClient(api_key=settings.vllm_api_key) as vllm_client:
+        yield ChatGenerationService(vllm_client=vllm_client)
+
+
+async def get_chat_generation_service() -> AsyncIterator[ChatGenerationService]:
+    """
+    Retorna instância de ChatGenerationService com VLLMClient gerenciado.
+
+    Gerencia o ciclo de vida do VLLMClient como async context manager
+    para garantir que a conexão HTTP seja aberta e fechada corretamente.
+
+    Pode ser sobrescrita via dependency_overrides nos testes.
+
+    Yields:
+        ChatGenerationService: Serviço de geração de chat.
+    """
+    async with VLLMClient(
+        base_url=settings.vllm_base_url,
+        model=settings.vllm_model,
+        timeout=settings.vllm_timeout_seconds,
+        api_key=settings.vllm_api_key,
+    ) as vllm_client:
+        yield ChatGenerationService(vllm_client=vllm_client)
 
 
 def extract_bearer_token(
