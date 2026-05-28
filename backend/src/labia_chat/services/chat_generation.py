@@ -2,6 +2,7 @@
 
 from typing import Optional
 
+from labia_chat.core.config import settings
 from labia_chat.services.vllm_client import VLLMClient, VLLMClientError
 
 
@@ -31,20 +32,32 @@ class ChatGenerationService:
     def __init__(
         self,
         vllm_client: Optional[VLLMClient] = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ):
         """
-        Inicializa o serviço com VLLMClient.
+        Inicializa o serviço com VLLMClient e parâmetros de geração.
 
         Args:
             vllm_client: Instância de VLLMClient. Se não fornecida, cria uma nova.
+            temperature: Temperatura para geração (0.0 a 1.0). Usa default se None.
+            max_tokens: Número máximo de tokens a gerar. Usa default se None.
         """
         self.vllm_client = vllm_client or VLLMClient()
+        self.temperature = (
+            temperature
+            if temperature is not None
+            else settings.vllm_temperature
+        )
+        self.max_tokens = (
+            max_tokens if max_tokens is not None else settings.vllm_max_tokens
+        )
 
     async def generate(
         self,
         messages: list[dict[str, str]],
-        temperature: float = 0.0,
-        max_tokens: int = 32,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> str:
         """
         Gera uma resposta usando o modelo VLLM.
@@ -52,8 +65,8 @@ class ChatGenerationService:
         Args:
             messages: Lista de mensagens no formato OpenAI.
                       Cada mensagem deve ter 'role' e 'content'.
-            temperature: Temperatura para geração (0.0 a 1.0).
-            max_tokens: Número máximo de tokens a gerar.
+            temperature: Temperatura para geração (0.0 a 1.0). Usa default se None.
+            max_tokens: Número máximo de tokens a gerar. Usa default se None.
 
         Returns:
             O conteúdo textual da resposta do modelo.
@@ -64,12 +77,16 @@ class ChatGenerationService:
         # Valida messages
         self._validate_messages(messages)
 
+        # Usa defaults se não fornecidos explicitamente
+        temp = temperature if temperature is not None else self.temperature
+        tokens = max_tokens if max_tokens is not None else self.max_tokens
+
         # Chama o VLLMClient
         try:
             return await self.vllm_client.generate(
                 messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
+                temperature=temp,
+                max_tokens=tokens,
             )
         except VLLMClientError as exc:
             raise ChatGenerationError(
@@ -136,3 +153,4 @@ class ChatGenerationService:
                 raise ChatGenerationError(
                     f"Invalid role: {role}. Allowed roles: {roles_str}"
                 )
+

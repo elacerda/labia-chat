@@ -41,6 +41,10 @@ class TestSettings:
         assert settings.vllm_timeout_seconds == 30
         assert settings.vllm_api_key is None
 
+        # Configurações de geração (MVP 5)
+        assert settings.vllm_temperature == 0.0
+        assert settings.vllm_max_tokens == 512
+
     def test_cors_origins_list(self):
         """Verifica que cors_origins_list retorna a lista correta."""
         settings = Settings()
@@ -98,15 +102,31 @@ class TestSettings:
                 {"vllm_api_key": ""},
             ),
             (
+                {"VLLM_TEMPERATURE": "0.5"},
+                {"vllm_temperature": 0.5},
+            ),
+            (
+                {"VLLM_MAX_TOKENS": "1024"},
+                {"vllm_max_tokens": 1024},
+            ),
+            (
+                {"VLLM_TEMPERATURE": "1.0", "VLLM_MAX_TOKENS": "2048"},
+                {"vllm_temperature": 1.0, "vllm_max_tokens": 2048},
+            ),
+            (
                 {
                     "VLLM_BASE_URL": "http://remote-host:9000",
                     "VLLM_MODEL": "mistral-7b",
                     "VLLM_TIMEOUT_SECONDS": "120",
+                    "VLLM_TEMPERATURE": "0.8",
+                    "VLLM_MAX_TOKENS": "512",
                 },
                 {
                     "vllm_base_url": "http://remote-host:9000",
                     "vllm_model": "mistral-7b",
                     "vllm_timeout_seconds": 120,
+                    "vllm_temperature": 0.8,
+                    "vllm_max_tokens": 512,
                 },
             ),
         ],

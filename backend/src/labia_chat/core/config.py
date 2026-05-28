@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     vllm_timeout_seconds: int = 30
     vllm_api_key: str | None = None
 
+    # Configurações de geração (MVP 5)
+    vllm_temperature: float = 0.0
+    vllm_max_tokens: int = 512
+
     @property
     def cors_origins_list(self) -> list[str]:
         """Retorna a lista de origins permitidos a partir da string de configuração."""

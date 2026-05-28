@@ -3,7 +3,9 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from pytest import approx
 
+from labia_chat.core.config import settings
 from labia_chat.services.chat_generation import (
     ChatGenerationError,
     ChatGenerationService,
@@ -36,11 +38,31 @@ class TestChatGenerationService:
         self.vllm_client = FakeVLLMClient()
         self.service = ChatGenerationService(vllm_client=self.vllm_client)
 
+    def test_init_uses_config_defaults_when_not_provided(self):
+        """Testa que __init__ usa config defaults quando não fornecidos."""
+        # Cria service sem parâmetros explícitos
+        service = ChatGenerationService(vllm_client=self.vllm_client)
+
+        # Deve usar os defaults do settings
+        assert service.temperature == settings.vllm_temperature
+        assert service.max_tokens == settings.vllm_max_tokens
+
+    def test_init_uses_provided_params_over_config(self):
+        """Testa que __init__ usa parâmetros explícitos quando fornecidos."""
+        service = ChatGenerationService(
+            vllm_client=self.vllm_client,
+            temperature=0.8,
+            max_tokens=1024,
+        )
+
+        assert service.temperature == 0.8
+        assert service.max_tokens == 1024
+
     # --- generate success ---
 
     @pytest.mark.asyncio
-    async def test_generate_success(self):
-        """Testa geração bem-sucedida."""
+    async def test_generate_success_uses_config_defaults(self):
+        """Testa geração bem-sucedida usando config defaults."""
         messages = [{"role": "user", "content": "Hello"}]
         result = await self.service.generate(messages=messages)
 
@@ -48,12 +70,13 @@ class TestChatGenerationService:
         assert len(self.vllm_client.generate_calls) == 1
         call = self.vllm_client.generate_calls[0]
         assert call[0] == messages
-        assert call[1] == 0.0  # temperature default
-        assert call[2] == 32  # max_tokens default
+        # Deve usar os defaults do settings
+        assert call[1] == approx(settings.vllm_temperature)
+        assert call[2] == approx(settings.vllm_max_tokens)
 
     @pytest.mark.asyncio
-    async def test_generate_with_custom_params(self):
-        """Testa geração com parâmetros customizados."""
+    async def test_generate_with_explicit_params_overrides_config(self):
+        """Testa que parâmetros explícitos sobrescrevem config."""
         messages = [{"role": "user", "content": "Hello"}]
         result = await self.service.generate(
             messages=messages,
