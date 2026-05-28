@@ -320,6 +320,177 @@ class TestCLIClientGenerateMessage:
         assert "Backend não conseguiu obter resposta do modelo" in str(exc_info.value)
 
 
+class TestCLIClientListMessages:
+    """Testes de listagem de mensagens."""
+
+    def test_list_messages_success(self) -> None:
+        """Testa listagem de mensagens bem-sucedida."""
+        messages_data = [
+            {
+                "id": "msg-1",
+                "conversation_id": "conv-123",
+                "role": "user",
+                "content": "Olá!",
+                "sequence_index": 0,
+                "model": None,
+                "metadata": {},
+                "created_at": "2024-01-01T00:00:00Z",
+            },
+            {
+                "id": "msg-2",
+                "conversation_id": "conv-123",
+                "role": "assistant",
+                "content": "Olá! Como posso ajudar?",
+                "sequence_index": 1,
+                "model": "qwen-coder-next",
+                "metadata": {},
+                "created_at": "2024-01-01T00:00:01Z",
+            },
+        ]
+
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.status_code = 200
+            response.json.return_value = messages_data
+            mock_client.get.return_value = response
+            mock_get_client.return_value = mock_client
+
+            result = client.list_messages("conv-123")
+
+        assert len(result) == 2
+        assert result[0]["content"] == "Olá!"
+        assert result[1]["content"] == "Olá! Como posso ajudar?"
+        mock_client.get.assert_called_once_with("/chat/conversations/conv-123/messages")
+
+    def test_list_messages_401(self) -> None:
+        """Testa listagem de mensagens com token inválido (401)."""
+        client = CLIClient("http://example.com")
+        client.set_token("invalid-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.status_code = 401
+            response.json.return_value = {"detail": "Not authenticated"}
+            error = httpx.HTTPStatusError(
+                "401 Unauthorized",
+                request=MagicMock(),
+                response=response,
+            )
+            mock_client.get.side_effect = error
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(AuthError) as exc_info:
+                client.list_messages("conv-123")
+
+        assert "Token inválido ou expirado" in str(exc_info.value)
+
+    def test_list_messages_404(self) -> None:
+        """Testa listagem de mensagens com conversa não encontrada (404)."""
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.status_code = 404
+            response.json.return_value = {"detail": "Not found"}
+            error = httpx.HTTPStatusError(
+                "404 Not Found",
+                request=MagicMock(),
+                response=response,
+            )
+            mock_client.get.side_effect = error
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(NotFoundError) as exc_info:
+                client.list_messages("conv-123")
+
+        assert "Conversa não encontrada" in str(exc_info.value)
+
+
+class TestCLIClientGetConversation:
+    """Testes de obtenção de conversa."""
+
+    def test_get_conversation_success(self) -> None:
+        """Testa obtenção de conversa bem-sucedida."""
+        conv_data = {
+            "id": "123e4567-e89b-12d3-a456-426614174000",
+            "title": "Test Conversation",
+            "metadata": {},
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-01T00:00:00Z",
+            "archived_at": None,
+        }
+
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.status_code = 200
+            response.json.return_value = conv_data
+            mock_client.get.return_value = response
+            mock_get_client.return_value = mock_client
+
+            result = client.get_conversation("123e4567-e89b-12d3-a456-426614174000")
+
+        assert result["id"] == "123e4567-e89b-12d3-a456-426614174000"
+        assert result["title"] == "Test Conversation"
+        mock_client.get.assert_called_once_with("/chat/conversations/123e4567-e89b-12d3-a456-426614174000")
+
+    def test_get_conversation_401(self) -> None:
+        """Testa obtenção de conversa com token inválido (401)."""
+        client = CLIClient("http://example.com")
+        client.set_token("invalid-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.status_code = 401
+            response.json.return_value = {"detail": "Not authenticated"}
+            error = httpx.HTTPStatusError(
+                "401 Unauthorized",
+                request=MagicMock(),
+                response=response,
+            )
+            mock_client.get.side_effect = error
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(AuthError) as exc_info:
+                client.get_conversation("123e4567-e89b-12d3-a456-426614174000")
+
+        assert "Token inválido ou expirado" in str(exc_info.value)
+
+    def test_get_conversation_404(self) -> None:
+        """Testa obtenção de conversa não encontrada (404)."""
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.status_code = 404
+            response.json.return_value = {"detail": "Not found"}
+            error = httpx.HTTPStatusError(
+                "404 Not Found",
+                request=MagicMock(),
+                response=response,
+            )
+            mock_client.get.side_effect = error
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(NotFoundError) as exc_info:
+                client.get_conversation("123e4567-e89b-12d3-a456-426614174000")
+
+        assert "Conversa não encontrada" in str(exc_info.value)
+
+
 class TestCLIClientClose:
     """Testes de fechamento do cliente."""
 

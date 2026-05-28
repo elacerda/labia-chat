@@ -56,8 +56,37 @@ def print_help() -> None:
     print("\nComandos disponíveis:")
     print("  /help    Mostra esta mensagem de ajuda")
     print("  /exit    Sai do chat")
+    print("  /history Mostra o histórico da conversa")
     print("  (qualquer outra linha envia uma mensagem)")
     print()
+
+
+def print_messages(messages: list[dict], show_last: int) -> None:
+    """
+    Imprime as últimas N mensagens.
+
+    Args:
+        messages: Lista de mensagens.
+        show_last: Número de mensagens a exibir.
+    """
+    if not messages:
+        print("Nenhuma mensagem ainda.")
+        return
+
+    # Pega as últimas N mensagens
+    last_messages = messages[-show_last:]
+
+    for msg in last_messages:
+        role = msg.get("role", "unknown")
+        content = msg.get("content", "")
+        # Formata a role para exibição
+        if role == "user":
+            print(f"Você: {content}")
+        elif role == "assistant":
+            print(f"Assistente: {content}")
+        else:
+            print(f"[{role}]: {content}")
+        print()
 
 
 def chat_command(args: argparse.Namespace) -> int:
@@ -97,25 +126,77 @@ def chat_command(args: argparse.Namespace) -> int:
             print(f"Erro: {e}")
             return 1
 
-        # Cria a conversa
-        title = args.title if args.title else None
-        try:
-            conversation = client.create_conversation(title=title)
-            conv_id = conversation.get("id", "desconhecido")
-            print(f"Nova conversa criada: {conv_id}")
+        # Verifica se deve resumir uma conversa existente
+        conversation_id = args.conversation_id
+        show_last = args.show_last
+
+        if conversation_id:
+            # Resumir conversa existente
+            client.conversation_id = conversation_id
+
+            try:
+                # Valida que a conversa existe e pertence ao usuário
+                conversation = client.get_conversation(conversation_id)
+                conv_title = conversation.get("title", "Sem título")
+                print(f"Conversa retomada: {conversation_id}")
+                if conv_title:
+                    print(f"Título: {conv_title}")
+                print()
+            except AuthError as e:
+                print(f"Erro: {e}")
+                return 1
+            except PermissionError as e:
+                print(f"Erro: {e}")
+                return 1
+            except NotFoundError as e:
+                print(f"Erro: {e}")
+                return 1
+            except BackendError as e:
+                print(f"Erro: {e}")
+                return 1
+            except ConnectionError as e:
+                print(f"Erro: {e}")
+                return 1
+
+            # Se show_last > 0, exibe as últimas mensagens
+            if show_last > 0:
+                try:
+                    messages = client.list_messages(conversation_id)
+                    print(f"Últimas {min(show_last, len(messages))} mensagens:")
+                    print_messages(messages, show_last)
+                except AuthError as e:
+                    print(f"Erro ao carregar histórico: {e}")
+                except PermissionError as e:
+                    print(f"Erro ao carregar histórico: {e}")
+                except NotFoundError as e:
+                    print(f"Erro ao carregar histórico: {e}")
+                except BackendError as e:
+                    print(f"Erro ao carregar histórico: {e}")
+                except ConnectionError as e:
+                    print(f"Erro ao carregar histórico: {e}")
+                print()
+
             print("Digite /help para ver os comandos disponíveis.\n")
-        except AuthError as e:
-            print(f"Erro: {e}")
-            return 1
-        except PermissionError as e:
-            print(f"Erro: {e}")
-            return 1
-        except BackendError as e:
-            print(f"Erro: {e}")
-            return 1
-        except ConnectionError as e:
-            print(f"Erro: {e}")
-            return 1
+        else:
+            # Cria nova conversa (comportamento original MVP 2.11)
+            title = args.title if args.title else None
+            try:
+                conversation = client.create_conversation(title=title)
+                conv_id = conversation.get("id", "desconhecido")
+                print(f"Nova conversa criada: {conv_id}")
+                print("Digite /help para ver os comandos disponíveis.\n")
+            except AuthError as e:
+                print(f"Erro: {e}")
+                return 1
+            except PermissionError as e:
+                print(f"Erro: {e}")
+                return 1
+            except BackendError as e:
+                print(f"Erro: {e}")
+                return 1
+            except ConnectionError as e:
+                print(f"Erro: {e}")
+                return 1
 
         # Loop interativo
         while True:
@@ -133,6 +214,26 @@ def chat_command(args: argparse.Namespace) -> int:
             if user_input == "/exit":
                 print("Saindo...")
                 break
+
+            if user_input == "/history":
+                if not client.conversation_id:
+                    print("Erro: Nenhuma conversa selecionada.\n")
+                    continue
+                try:
+                    messages = client.list_messages(client.conversation_id)
+                    print(f"Últimas {min(show_last, len(messages))} mensagens:")
+                    print_messages(messages, show_last)
+                except AuthError as e:
+                    print(f"Erro ao carregar histórico: {e}\n")
+                except PermissionError as e:
+                    print(f"Erro ao carregar histórico: {e}\n")
+                except NotFoundError as e:
+                    print(f"Erro ao carregar histórico: {e}\n")
+                except BackendError as e:
+                    print(f"Erro ao carregar histórico: {e}\n")
+                except ConnectionError as e:
+                    print(f"Erro ao carregar histórico: {e}\n")
+                continue
 
             # Envia mensagem normal
             if not user_input.strip():
@@ -199,10 +300,25 @@ def main() -> int:
         type=str,
         help="Título da nova conversa",
     )
+    chat_parser.add_argument(
+        "--conversation-id",
+        type=str,
+        help="ID da conversa para retomar (UUID)",
+    )
+    chat_parser.add_argument(
+        "--show-last",
+        type=int,
+        default=10,
+        help="Número de mensagens a exibir no histórico (padrão: 10)",
+    )
 
     args = parser.parse_args()
 
     if args.command == "chat":
+        # Valida show_last
+        if args.show_last < 0:
+            print("Erro: --show-last deve ser um número inteiro não negativo.")
+            return 1
         return chat_command(args)
 
     # Se nenhum comando foi fornecido, mostra ajuda
