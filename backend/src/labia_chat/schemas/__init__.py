@@ -3,6 +3,8 @@
 from labia_chat.schemas.chat import (
     ConversationCreate,
     ConversationResponse,
+    MessageCreate,
+    MessageResponse,
 )
 from labia_chat.schemas.user import (
     ADSSRole,
@@ -16,4 +18,6 @@ __all__ = [
     "AuthenticatedUser",
     "ConversationCreate",
     "ConversationResponse",
+    "MessageCreate",
+    "MessageResponse",
 ]
