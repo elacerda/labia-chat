@@ -263,13 +263,43 @@ Resposta esperada:
 
 ---
 
-## Como Listar Mensagens
+## Como Listar Conversas (com paginação)
 
 ```bash
-curl -sS "http://127.0.0.1:8010/chat/conversations/${CONVERSATION_ID}/messages" \
+curl -sS "http://127.0.0.1:8010/chat/conversations?limit=20&offset=0" \
   -H "Authorization: Bearer ${AI_SCOPE_ACCESS_TOKEN}" \
   | python -m json.tool
 ```
+
+### Parâmetros de paginação
+
+| Parâmetro | Padrão | Mínimo | Máximo | Descrição |
+|-----------|--------|--------|--------|-----------|
+| `limit`   | 20     | 1      | 100    | Número máximo de conversas a retornar |
+| `offset`  | 0      | 0      | -      | Número de conversas a pular |
+
+- Valores inválidos (`limit < 1`, `limit > 100`, `offset < 0`) retornam HTTP 422.
+- Conversas são ordenadas do mais recente para o mais antigo.
+
+---
+
+## Como Listar Mensagens (com paginação)
+
+```bash
+curl -sS "http://127.0.0.1:8010/chat/conversations/${CONVERSATION_ID}/messages?limit=50&offset=0" \
+  -H "Authorization: Bearer ${AI_SCOPE_ACCESS_TOKEN}" \
+  | python -m json.tool
+```
+
+### Parâmetros de paginação
+
+| Parâmetro | Padrão | Mínimo | Máximo | Descrição |
+|-----------|--------|--------|--------|-----------|
+| `limit`   | 50     | 1      | 200    | Número máximo de mensagens a retornar |
+| `offset`  | 0      | 0      | -      | Número de mensagens a pular |
+
+- Valores inválidos (`limit < 1`, `limit > 200`, `offset < 0`) retornam HTTP 422.
+- Mensagens são ordenadas cronologicamente (do mais antigo para o mais recente).
 
 Resposta esperada:
 

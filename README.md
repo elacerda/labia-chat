@@ -45,7 +45,8 @@ Esse documento cobre:
 - avisos de segurança;
 - como rodar o backend;
 - como testar endpoints via curl;
-- troubleshooting.
+- troubleshooting;
+- paginação de conversas e mensagens (MVP 2.15).
 
 ### Roadmap atual
 

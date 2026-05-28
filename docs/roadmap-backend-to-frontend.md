@@ -113,6 +113,29 @@ Escopo:
 - ordenação explícita;
 - documentação do contrato.
 
+**Status:** Concluído
+
+Contrato da API:
+
+| Endpoint | Parâmetros | Padrão | Máximo |
+|----------|------------|--------|--------|
+| `GET /chat/conversations` | `limit`, `offset` | `limit=20`, `offset=0` | `limit=100` |
+| `GET /chat/conversations/{id}/messages` | `limit`, `offset` | `limit=50`, `offset=0` | `limit=200` |
+
+Validações:
+
+- `limit >= 1`, `offset >= 0`
+- Valores inválidos retornam HTTP 422
+- Conversas ordenadas do mais recente para o mais antigo
+- Mensagens ordenadas cronologicamente
+
+CLI:
+
+```bash
+labia-chat conversations list --limit 20 --offset 0
+labia-chat messages list <conversation-id> --limit 50 --offset 0
+```
+
 ### MVP 2.16 — Operações de conversa
 
 Objetivo: completar o ciclo de vida básico de conversas.
