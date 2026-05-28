@@ -16,6 +16,7 @@ class FakeAsyncHTTPClient:
         self.timeout = timeout
         self.last_request = None
         self.call_count = 0
+        self._headers = None
 
     async def __aenter__(self):
         return self
@@ -23,15 +24,21 @@ class FakeAsyncHTTPClient:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         pass
 
+    def set_headers(self, headers: dict | None):
+        """Armazena headers para simular o comportamento do httpx.AsyncClient."""
+        self._headers = headers
+
     async def post(
         self, path: str, json: dict | None = None, headers: dict | None = None
     ):
         """Simula POST e armazena a requisição."""
         self.call_count += 1
+        # Se headers for None, usa os headers armazenados
+        effective_headers = headers if headers is not None else self._headers
         self.last_request = {
             "path": path,
             "json": json,
-            "headers": headers,
+            "headers": effective_headers,
         }
         return self._response
 
@@ -114,6 +121,17 @@ def vllm_client():
     )
 
 
+@pytest.fixture
+def vllm_client_with_api_key():
+    """Cria um VLLMClient com API key."""
+    return VLLMClient(
+        base_url="http://localhost:8000",
+        model="test-model",
+        timeout=30.0,
+        api_key="test-api-key-123",
+    )
+
+
 class TestVLLMClient:
     """Testes para VLLMClient."""
 
@@ -144,6 +162,7 @@ class TestVLLMClient:
         """Testa que o payload enviado tem a estrutura correta."""
         fake_http = FakeAsyncHTTPClient(base_url="", timeout=0)
         fake_http.set_success_response("Response")
+        fake_http.set_headers({"Content-Type": "application/json"})
 
         original_client = vllm_client._client
         vllm_client._client = fake_http
@@ -279,4 +298,94 @@ class TestVLLMClient:
         assert client.base_url == settings.vllm_base_url.rstrip("/")
         assert client.model == settings.vllm_model
         assert client.timeout == settings.vllm_timeout_seconds
+
+    @pytest.mark.asyncio
+    async def test_no_authorization_header_without_api_key(self, vllm_client):
+        """Testa que não envia Authorization header quando api_key é None."""
+        fake_http = FakeAsyncHTTPClient(base_url="", timeout=0)
+        fake_http.set_success_response("Response")
+        fake_http.set_headers({"Content-Type": "application/json"})
+
+        original_client = vllm_client._client
+        vllm_client._client = fake_http
+
+        try:
+            await vllm_client.generate(
+                messages=[{"role": "user", "content": "Test"}]
+            )
+
+            # Authorization header não deve estar presente
+            assert fake_http.last_request["headers"].get("Authorization") is None
+        finally:
+            vllm_client._client = original_client
+
+    @pytest.mark.asyncio
+    async def test_authorization_header_with_api_key(self, vllm_client_with_api_key):
+        """Testa que envia Authorization header quando api_key é fornecida."""
+        fake_http = FakeAsyncHTTPClient(base_url="", timeout=0)
+        fake_http.set_success_response("Response")
+        fake_http.set_headers({
+            "Content-Type": "application/json",
+            "Authorization": "Bearer test-api-key-123",
+        })
+
+        original_client = vllm_client_with_api_key._client
+        vllm_client_with_api_key._client = fake_http
+
+        try:
+            await vllm_client_with_api_key.generate(
+                messages=[{"role": "user", "content": "Test"}]
+            )
+
+            # Authorization header deve estar presente com formato correto
+            auth_header = fake_http.last_request["headers"].get("Authorization")
+            assert auth_header == "Bearer test-api-key-123"
+        finally:
+            vllm_client_with_api_key._client = original_client
+
+    @pytest.mark.asyncio
+    async def test_no_authorization_header_with_empty_api_key(self):
+        """Testa que não envia Authorization header quando api_key é vazia."""
+        client = VLLMClient(
+            base_url="http://localhost:8000",
+            model="test-model",
+            timeout=30.0,
+            api_key="",
+        )
+        fake_http = FakeAsyncHTTPClient(base_url="", timeout=0)
+        fake_http.set_success_response("Response")
+        fake_http.set_headers({"Content-Type": "application/json"})
+
+        original_client = client._client
+        client._client = fake_http
+
+        try:
+            await client.generate(messages=[{"role": "user", "content": "Test"}])
+
+            assert fake_http.last_request["headers"].get("Authorization") is None
+        finally:
+            client._client = original_client
+
+    @pytest.mark.asyncio
+    async def test_no_authorization_header_with_whitespace_api_key(self):
+        """Testa que não envia Authorization header quando api_key é só whitespace."""
+        client = VLLMClient(
+            base_url="http://localhost:8000",
+            model="test-model",
+            timeout=30.0,
+            api_key="   ",
+        )
+        fake_http = FakeAsyncHTTPClient(base_url="", timeout=0)
+        fake_http.set_success_response("Response")
+        fake_http.set_headers({"Content-Type": "application/json"})
+
+        original_client = client._client
+        client._client = fake_http
+
+        try:
+            await client.generate(messages=[{"role": "user", "content": "Test"}])
+
+            assert fake_http.last_request["headers"].get("Authorization") is None
+        finally:
+            client._client = original_client
 

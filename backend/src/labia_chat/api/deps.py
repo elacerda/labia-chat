@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, Header, HTTPException
 
+from labia_chat.core.config import settings
 from labia_chat.core.errors import (
     AuthenticationError,
     AuthorizationError,
@@ -51,7 +52,7 @@ def get_vllm_client() -> VLLMClient:
 
     Pode ser sobrescrita via dependency_overrides nos testes.
     """
-    return VLLMClient()
+    return VLLMClient(api_key=settings.vllm_api_key)
 
 
 @asynccontextmanager
@@ -67,7 +68,7 @@ async def get_vllm_service():
     Yields:
         ChatGenerationService: Serviço de geração de chat.
     """
-    async with VLLMClient() as vllm_client:
+    async with VLLMClient(api_key=settings.vllm_api_key) as vllm_client:
         yield ChatGenerationService(vllm_client=vllm_client)
 
 
@@ -81,7 +82,7 @@ def get_chat_generation_service() -> ChatGenerationService:
     Returns:
         ChatGenerationService: Serviço de geração de chat.
     """
-    return ChatGenerationService(vllm_client=VLLMClient())
+    return ChatGenerationService(vllm_client=VLLMClient(api_key=settings.vllm_api_key))
 
 
 def extract_bearer_token(

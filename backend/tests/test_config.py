@@ -35,6 +35,7 @@ class TestSettings:
         assert settings.vllm_base_url == "http://127.0.0.1:8000"
         assert settings.vllm_model == "qwen-coder-next"
         assert settings.vllm_timeout_seconds == 30
+        assert settings.vllm_api_key is None
 
     def test_cors_origins_list(self):
         """Verifica que cors_origins_list retorna a lista correta."""
@@ -83,6 +84,14 @@ class TestSettings:
             (
                 {"VLLM_TIMEOUT_SECONDS": "60"},
                 {"vllm_timeout_seconds": 60},
+            ),
+            (
+                {"VLLM_API_KEY": "my-secret-key"},
+                {"vllm_api_key": "my-secret-key"},
+            ),
+            (
+                {"VLLM_API_KEY": ""},
+                {"vllm_api_key": ""},
             ),
             (
                 {

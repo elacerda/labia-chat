@@ -25,6 +25,7 @@ class VLLMClient:
         base_url: str | None = None,
         model: str | None = None,
         timeout: float | None = None,
+        api_key: str | None = None,
     ):
         """
         Inicializa o cliente vLLM.
@@ -35,17 +36,25 @@ class VLLMClient:
                 settings.vllm_model.
             timeout: Timeout em segundos para requisições. Se não fornecido, usa
                 settings.vllm_timeout_seconds.
+            api_key: API key para autenticação. Se não fornecida ou vazia, não envia
+                Authorization header.
         """
         self.base_url = (base_url or settings.vllm_base_url).rstrip("/")
         self.model = model or settings.vllm_model
         self.timeout = timeout or settings.vllm_timeout_seconds
+        self._api_key = api_key
         self._client: httpx.AsyncClient | None = None
 
     async def __aenter__(self) -> "VLLMClient":
         """Entrar no contexto assíncrono."""
+        headers = {"Content-Type": "application/json"}
+        if self._api_key and self._api_key.strip():
+            headers["Authorization"] = f"Bearer {self._api_key}"
+
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             timeout=httpx.Timeout(self.timeout),
+            headers=headers,
         )
         return self
 
@@ -90,7 +99,6 @@ class VLLMClient:
             response = await self._client.post(
                 "/v1/chat/completions",
                 json=payload,
-                headers={"Content-Type": "application/json"},
             )
         except asyncio.TimeoutError as exc:
             raise VLLMClientError(

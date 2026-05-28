@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     vllm_base_url: str = "http://127.0.0.1:8000"
     vllm_model: str = "qwen-coder-next"
     vllm_timeout_seconds: int = 30
+    vllm_api_key: str | None = None
 
     @property
     def cors_origins_list(self) -> list[str]:
