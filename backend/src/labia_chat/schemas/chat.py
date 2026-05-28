@@ -53,3 +53,15 @@ class MessageResponse(BaseModel):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PingRequest(BaseModel):
+    """Schema para requisição de ping (diagnóstico de geração)."""
+
+    prompt: str = "ping"
+
+
+class PingResponse(BaseModel):
+    """Schema para resposta de ping (diagnóstico de geração)."""
+
+    response: str

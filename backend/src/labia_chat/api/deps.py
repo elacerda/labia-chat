@@ -1,5 +1,7 @@
 """Dependências FastAPI para autenticação e autorização."""
 
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, Header, HTTPException
 
 from labia_chat.core.errors import (
@@ -10,8 +12,10 @@ from labia_chat.core.errors import (
 from labia_chat.models.user import ChatUser
 from labia_chat.schemas.user import AuthenticatedUser
 from labia_chat.services.auth_service import AuthService
+from labia_chat.services.chat_generation import ChatGenerationService
 from labia_chat.services.chat_persistence import ChatPersistenceService
 from labia_chat.services.chat_user_sync import ChatUserSyncService
+from labia_chat.services.vllm_client import VLLMClient
 
 
 def get_auth_service() -> AuthService:
@@ -39,6 +43,45 @@ def get_chat_persistence_service() -> ChatPersistenceService:
     Pode ser sobrescrita via dependency_overrides nos testes.
     """
     return ChatPersistenceService()
+
+
+def get_vllm_client() -> VLLMClient:
+    """
+    Retorna instância de VLLMClient.
+
+    Pode ser sobrescrita via dependency_overrides nos testes.
+    """
+    return VLLMClient()
+
+
+@asynccontextmanager
+async def get_vllm_service():
+    """
+    Retorna instância de ChatGenerationService com VLLMClient gerenciado.
+
+    Gerencia o ciclo de vida do VLLMClient como async context manager
+    para garantir que a conexão HTTP seja aberta e fechada corretamente.
+
+    Pode ser sobrescrita via dependency_overrides nos testes.
+
+    Yields:
+        ChatGenerationService: Serviço de geração de chat.
+    """
+    async with VLLMClient() as vllm_client:
+        yield ChatGenerationService(vllm_client=vllm_client)
+
+
+def get_chat_generation_service() -> ChatGenerationService:
+    """
+    Retorna instância de ChatGenerationService.
+
+    Cria um ChatGenerationService usando VLLMClient configurado por settings.
+    Pode ser sobrescrita via dependency_overrides nos testes.
+
+    Returns:
+        ChatGenerationService: Serviço de geração de chat.
+    """
+    return ChatGenerationService(vllm_client=VLLMClient())
 
 
 def extract_bearer_token(

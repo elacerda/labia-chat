@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from labia_chat.api.deps import (
     get_auth_service,
+    get_chat_generation_service,
     get_chat_persistence_service,
     get_chat_user_sync_service,
     get_current_chat_user,
@@ -147,6 +148,181 @@ def test_get_conversations_with_valid_user() -> None:
         assert response.status_code == 200
         data = response.json()
         assert isinstance(data, list)
+    finally:
+        app.dependency_overrides.clear()
+
+
+# --- Testes para POST /chat/model/ping ---
+
+
+class FakeChatGenerationService:
+    """Fake de ChatGenerationService para testes (não acessa vLLM real)."""
+
+    def __init__(self):
+        self.generate_calls: list = []
+
+    async def generate(
+        self,
+        messages: list[dict[str, str]],
+        temperature: float = 0.0,
+        max_tokens: int = 32,
+    ) -> str:
+        """Simula geração e armazena a chamada."""
+        self.generate_calls.append(
+            {"messages": messages, "temperature": temperature, "max_tokens": max_tokens}
+        )
+        # Retorna uma resposta simulada
+        return "Test response from model"
+
+
+def test_post_model_ping_returns_200_with_response() -> None:
+    """Testa POST /model/ping retorna 200 e PingResponse."""
+    internal_id = str(uuid4())
+    fake_user = FakeChatUser(id=internal_id, adss_id="adss-user-123")
+    fake_service = FakeChatGenerationService()
+
+    def fake_get_current_chat_user_override():
+        return fake_user
+
+    def fake_get_chat_generation_service_override():
+        return fake_service
+
+    app.dependency_overrides[get_current_chat_user] = (
+        fake_get_current_chat_user_override
+    )
+    app.dependency_overrides[get_chat_generation_service] = (
+        fake_get_chat_generation_service_override
+    )
+
+    try:
+        response = client.post(
+            "/chat/model/ping",
+            json={"prompt": "Hello"},
+            headers={"Authorization": "Bearer valid-token"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "response" in data
+        assert data["response"] == "Test response from model"
+        # Verifica que generate foi chamado com as mensagens corretas
+        assert len(fake_service.generate_calls) == 1
+        call = fake_service.generate_calls[0]
+        assert call["messages"] == [{"role": "user", "content": "Hello"}]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_post_model_ping_uses_default_prompt_when_empty() -> None:
+    """Testa POST /model/ping usa prompt='ping' quando body vazio."""
+    internal_id = str(uuid4())
+    fake_user = FakeChatUser(id=internal_id, adss_id="adss-user-123")
+    fake_service = FakeChatGenerationService()
+
+    def fake_get_current_chat_user_override():
+        return fake_user
+
+    def fake_get_chat_generation_service_override():
+        return fake_service
+
+    app.dependency_overrides[get_current_chat_user] = (
+        fake_get_current_chat_user_override
+    )
+    app.dependency_overrides[get_chat_generation_service] = (
+        fake_get_chat_generation_service_override
+    )
+
+    try:
+        # Envia body vazio - deve usar o default "ping"
+        response = client.post(
+            "/chat/model/ping",
+            headers={"Authorization": "Bearer valid-token"},
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "response" in data
+        # Verifica que generate foi chamado com o prompt default
+        assert len(fake_service.generate_calls) == 1
+        call = fake_service.generate_calls[0]
+        assert call["messages"] == [{"role": "user", "content": "ping"}]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_post_model_ping_returns_502_on_generation_error() -> None:
+    """Testa POST /model/ping retorna 502 quando ChatGenerationError."""
+    internal_id = str(uuid4())
+    fake_user = FakeChatUser(id=internal_id, adss_id="adss-user-123")
+
+    class FakeChatGenerationServiceWithError:
+        async def generate(self, messages: list[dict[str, str]]) -> str:
+            from labia_chat.services.chat_generation import ChatGenerationError
+            raise ChatGenerationError("Model not found")
+
+    fake_service = FakeChatGenerationServiceWithError()
+
+    def fake_get_current_chat_user_override():
+        return fake_user
+
+    def fake_get_chat_generation_service_override():
+        return fake_service
+
+    app.dependency_overrides[get_current_chat_user] = (
+        fake_get_current_chat_user_override
+    )
+    app.dependency_overrides[get_chat_generation_service] = (
+        fake_get_chat_generation_service_override
+    )
+
+    try:
+        response = client.post(
+            "/chat/model/ping",
+            json={"prompt": "Test"},
+            headers={"Authorization": "Bearer valid-token"},
+        )
+        assert response.status_code == 502
+        assert response.json()["detail"] == "Model not found"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_post_model_ping_requires_authentication() -> None:
+    """Testa POST /model/ping sem Authorization -> 401."""
+    response = client.post(
+        "/chat/model/ping",
+        json={"prompt": "Test"},
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Not authenticated"
+
+
+def test_post_model_ping_uses_chat_user_for_auth() -> None:
+    """Testa POST /model/ping usa get_current_chat_user para autenticação."""
+    internal_id = str(uuid4())
+    fake_user = FakeChatUser(id=internal_id, adss_id="adss-user-123")
+    fake_service = FakeChatGenerationService()
+
+    def fake_get_current_chat_user_override():
+        return fake_user
+
+    def fake_get_chat_generation_service_override():
+        return fake_service
+
+    app.dependency_overrides[get_current_chat_user] = (
+        fake_get_current_chat_user_override
+    )
+    app.dependency_overrides[get_chat_generation_service] = (
+        fake_get_chat_generation_service_override
+    )
+
+    try:
+        response = client.post(
+            "/chat/model/ping",
+            json={"prompt": "Test"},
+            headers={"Authorization": "Bearer valid-token"},
+        )
+        assert response.status_code == 200
+        # Verifica que o endpoint usa o mesmo mecanismo de autenticação
+        # que os outros endpoints /chat (get_current_chat_user)
     finally:
         app.dependency_overrides.clear()
 
