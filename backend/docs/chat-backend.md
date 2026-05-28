@@ -529,3 +529,117 @@ Documentação do CLI:
 O CLI deve chamar apenas o backend. Ele não deve chamar o vLLM diretamente.
 
 O histórico de conversas e mensagens deve continuar tendo o backend/PostgreSQL como fonte de verdade. O CLI não deve persistir mensagens localmente.
+
+---
+
+## Validação Operacional (Smoke Test)
+
+Antes de iniciar o desenvolvimento frontend, execute este fluxo manual ou automatizado para validar que o backend e CLI funcionam end-to-end.
+
+### Pré-requisitos
+
+| Componente | Status | Notas |
+|------------|--------|-------|
+| Backend rodando | Obrigatório | `http://127.0.0.1:8010` (padrão) |
+| Token AI-Scope | Obrigatório | Exportar `LABIA_CHAT_TOKEN` |
+| Banco PostgreSQL | Obrigatório | Para persistência de conversas/mensagens |
+| vLLM | Opcional | Apenas para testes de geração (`--with-model`) |
+
+### Configuração Segura do Token
+
+**NUNCA** exiba ou salve tokens em arquivos de log. Use este método seguro:
+
+```bash
+read -rsp "AI-Scope token: " LABIA_CHAT_TOKEN
+export LABIA_CHAT_TOKEN
+echo
+```
+
+Ou, se já tiver um token válido:
+
+```bash
+export LABIA_CHAT_TOKEN=seu-token-aqui
+```
+
+### Script de Smoke Test Automatizado
+
+O repositório inclui um script de smoke test que valida o fluxo completo:
+
+```bash
+# Core smoke (sem vLLM)
+bash backend/scripts/smoke_cli.sh
+
+# Full smoke (com geração, requer vLLM)
+bash backend/scripts/smoke_cli.sh --with-model
+
+# Com URL customizada
+bash backend/scripts/smoke_cli.sh --api-url http://127.0.0.1:8010
+```
+
+#### O que o script valida
+
+| Passo | Comando | Obrigatório | O que valida |
+|-------|---------|-------------|--------------|
+| 1 | `curl /health` | Sim | Backend está rodando |
+| 2 | `labia-chat auth me` | Sim | Token válido + usuário ativo |
+| 3 | `labia-chat conversations create` | Sim | Criação de conversa |
+| 4 | `labia-chat conversations list` | Sim | Listagem com paginação |
+| 5 | `labia-chat messages list` | Sim | Listagem de mensagens (vazia) |
+| 6 | `labia-chat chat send` | Opcional | Geração via vLLM |
+| 7 | `labia-chat messages list` | Opcional | Mensagem persistida |
+| 8 | `curl /chat/model/ping` | Opcional | Endpoint de ping direto |
+
+#### Segurança do script
+
+- **NUNCA** exibe o token na saída
+- Usa `set -euo pipefail` para falhar em erros
+| Requer `LABIA_CHAT_TOKEN` para ser definido
+| Usa `read -rsp` para entrada segura de token
+
+### Validação Manual (Checklist)
+
+Se preferir validar manualmente, execute estes passos:
+
+```bash
+# 1. Health check
+curl -s http://127.0.0.1:8010/health | python -m json.tool
+
+# 2. Validar token
+labia-chat auth me
+
+# 3. Criar conversa
+labia-chat conversations create --title "Smoke Test"
+
+# 4. Listar conversas
+labia-chat conversations list --limit 5 --offset 0
+
+# 5. Listar mensagens (deve estar vazia)
+labia-chat messages list <conversation-id> --limit 10 --offset 0
+
+# 6. Enviar mensagem (requer vLLM)
+labia-chat chat send <conversation-id> "Smoke test message"
+
+# 7. Listar mensagens (deve ter 1 mensagem)
+labia-chat messages list <conversation-id> --limit 10 --offset 0
+```
+
+### Sucesso vs Falha
+
+| Resultado | Indicação |
+|-----------|-----------|
+| **Sucesso** | Todos os passos obrigatórios (1-5) passam |
+| **Falha** | Qualquer passo obrigatório falha |
+| **Opcional** | Passos 6-8 podem falhar se vLLM não estiver disponível |
+
+### Erros Comuns
+
+| Erro | Causa | Solução |
+|------|-------|---------|
+| `401 Unauthorized` | Token inválido/expirado | Obtenha novo token no AI-Scope |
+| `403 Forbidden` | Sem role `chat_vllm` | Solicite a role ao administrador |
+| `502 Bad Gateway` | vLLM indisponível | Inicie o vLLM ou use `--with-model` apenas quando vLLM estiver rodando |
+| `connection refused` | Backend não rodando | Inicie o backend em `http://127.0.0.1:8010` |
+
+---
+
+## Testes
