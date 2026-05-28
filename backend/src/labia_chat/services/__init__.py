@@ -4,6 +4,8 @@ from labia_chat.services.adss_client import AdssClient
 from labia_chat.services.auth_service import AuthService
 from labia_chat.services.chat_completion import (
     ChatCompletionError,
+    ChatCompletionGenerationError,
+    ChatCompletionNotFoundError,
     ChatCompletionService,
 )
 from labia_chat.services.chat_generation import (
@@ -17,6 +19,8 @@ __all__ = [
     "AdssClient",
     "AuthService",
     "ChatCompletionError",
+    "ChatCompletionGenerationError",
+    "ChatCompletionNotFoundError",
     "ChatCompletionService",
     "ChatGenerationError",
     "ChatGenerationService",

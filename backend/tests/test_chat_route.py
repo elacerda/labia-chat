@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from labia_chat.api.deps import (
     get_auth_service,
+    get_chat_completion_service,
     get_chat_generation_service,
     get_chat_persistence_service,
     get_chat_user_sync_service,
@@ -1464,6 +1465,392 @@ def test_get_conversation_with_invalid_uuid_returns_422() -> None:
         assert "detail" in response.json()
     finally:
         app.dependency_overrides.clear()
+
+
+# --- Testes para POST /chat/conversations/{conversation_id}/generate ---
+
+
+class FakeChatCompletionService:
+    """Fake de ChatCompletionService para testes (não acessa banco real)."""
+
+    def __init__(self):
+        self.complete_calls: list = []
+        self.messages: list = []
+
+    async def complete(
+        self,
+        conversation_id: str,
+        user_id: str,
+        content: str,
+        model: str | None = None,
+    ):
+        """Simula geração de resposta."""
+        self.complete_calls.append(
+            {
+                "conversation_id": conversation_id,
+                "user_id": user_id,
+                "content": content,
+                "model": model,
+            }
+        )
+        from datetime import datetime
+
+        msg = type(
+            "ChatMessage",
+            (),
+            {
+                "id": uuid4(),
+                "conversation_id": conversation_id,
+                "user_id": user_id,
+                "role": "assistant",
+                "content": "Generated response",
+                "model": model,
+                "message_metadata": {},
+                "sequence_index": len(self.messages),
+                "created_at": datetime.now(),
+            },
+        )()
+        self.messages.append(msg)
+        return msg
+
+
+def test_generate_response_returns_201_and_message_response() -> None:
+    """Testa POST /generate retorna 201 e MessageResponse."""
+    internal_id = str(uuid4())
+    fake_user = FakeChatUser(id=internal_id, adss_id="adss-user-123")
+    fake_service = FakeChatCompletionService()
+
+    # Cria uma conversa para o usuário
+    fake_persistence = FakeChatPersistenceService()
+    created_conv = fake_persistence.create_conversation_sync(
+        user_id=internal_id,
+        title="Test Conversation",
+        metadata={},
+    )
+
+    def fake_get_current_chat_user_override():
+        return fake_user
+
+    def fake_get_chat_completion_service_override():
+        return fake_service
+
+    def fake_get_chat_persistence_service_override():
+        return fake_persistence
+
+    app.dependency_overrides[get_current_chat_user] = (
+        fake_get_current_chat_user_override
+    )
+    app.dependency_overrides[get_chat_completion_service] = (
+        fake_get_chat_completion_service_override
+    )
+    app.dependency_overrides[get_chat_persistence_service] = (
+        fake_get_chat_persistence_service_override
+    )
+
+    try:
+        payload = {"content": "Explique o que é uma supernova tipo Ia."}
+        response = client.post(
+            f"/chat/conversations/{created_conv.id}/generate",
+            json=payload,
+            headers={"Authorization": "Bearer valid-token"},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["role"] == "assistant"
+        assert data["content"] == "Generated response"
+        assert "id" in data
+        assert "sequence_index" in data
+        assert "created_at" in data
+        # Verifica que service foi chamado com os parâmetros corretos
+        assert len(fake_service.complete_calls) == 1
+        call = fake_service.complete_calls[0]
+        assert call["conversation_id"] == str(created_conv.id)
+        assert call["user_id"] == internal_id
+        assert call["content"] == payload["content"]
+        assert call["model"] == "qwen-coder-next"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_generate_response_does_not_expose_user_id() -> None:
+    """Testa que POST /generate não expõe user_id na resposta."""
+    internal_id = str(uuid4())
+    fake_user = FakeChatUser(id=internal_id, adss_id="adss-user-123")
+    fake_service = FakeChatCompletionService()
+
+    fake_persistence = FakeChatPersistenceService()
+    created_conv = fake_persistence.create_conversation_sync(
+        user_id=internal_id,
+        title="Test Conversation",
+        metadata={},
+    )
+
+    def fake_get_current_chat_user_override():
+        return fake_user
+
+    def fake_get_chat_completion_service_override():
+        return fake_service
+
+    def fake_get_chat_persistence_service_override():
+        return fake_persistence
+
+    app.dependency_overrides[get_current_chat_user] = (
+        fake_get_current_chat_user_override
+    )
+    app.dependency_overrides[get_chat_completion_service] = (
+        fake_get_chat_completion_service_override
+    )
+    app.dependency_overrides[get_chat_persistence_service] = (
+        fake_get_chat_persistence_service_override
+    )
+
+    try:
+        payload = {"content": "Test content"}
+        response = client.post(
+            f"/chat/conversations/{created_conv.id}/generate",
+            json=payload,
+            headers={"Authorization": "Bearer valid-token"},
+        )
+        assert response.status_code == 201
+        data = response.json()
+        # Verifica que user_id não aparece na resposta pública
+        assert "user_id" not in data
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_generate_response_returns_404_when_conversation_not_found() -> None:
+    """Testa POST /generate retorna 404 quando conversa não existe."""
+    internal_id = str(uuid4())
+    fake_user = FakeChatUser(id=internal_id, adss_id="adss-user-123")
+
+    class FakeChatCompletionServiceWithNotFound:
+        async def complete(self, conversation_id: str, user_id: str, content: str, model: str | None = None):
+            from labia_chat.services.chat_completion import ChatCompletionNotFoundError
+            raise ChatCompletionNotFoundError("Conversation not found or does not belong to user")
+
+    fake_service = FakeChatCompletionServiceWithNotFound()
+
+    fake_persistence = FakeChatPersistenceService()
+
+    def fake_get_current_chat_user_override():
+        return fake_user
+
+    def fake_get_chat_completion_service_override():
+        return fake_service
+
+    def fake_get_chat_persistence_service_override():
+        return fake_persistence
+
+    app.dependency_overrides[get_current_chat_user] = (
+        fake_get_current_chat_user_override
+    )
+    app.dependency_overrides[get_chat_completion_service] = (
+        fake_get_chat_completion_service_override
+    )
+    app.dependency_overrides[get_chat_persistence_service] = (
+        fake_get_chat_persistence_service_override
+    )
+
+    try:
+        # Use a valid UUID that doesn't exist in the fake service
+        non_existent_uuid = str(uuid4())
+        payload = {"content": "Test content"}
+        response = client.post(
+            f"/chat/conversations/{non_existent_uuid}/generate",
+            json=payload,
+            headers={"Authorization": "Bearer valid-token"},
+        )
+        assert response.status_code == 404
+        assert (
+            response.json()["detail"]
+            == "Conversation not found or does not belong to user"
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_generate_response_returns_502_on_generation_error() -> None:
+    """Testa POST /generate retorna 502 quando geração falha."""
+    internal_id = str(uuid4())
+    fake_user = FakeChatUser(id=internal_id, adss_id="adss-user-123")
+
+    class FakeChatCompletionServiceWithGenerationError:
+        async def complete(self, conversation_id: str, user_id: str, content: str, model: str | None = None):
+            from labia_chat.services.chat_completion import ChatCompletionGenerationError
+            raise ChatCompletionGenerationError("Failed to generate response")
+
+    fake_service = FakeChatCompletionServiceWithGenerationError()
+
+    fake_persistence = FakeChatPersistenceService()
+    created_conv = fake_persistence.create_conversation_sync(
+        user_id=internal_id,
+        title="Test Conversation",
+        metadata={},
+    )
+
+    def fake_get_current_chat_user_override():
+        return fake_user
+
+    def fake_get_chat_completion_service_override():
+        return fake_service
+
+    def fake_get_chat_persistence_service_override():
+        return fake_persistence
+
+    app.dependency_overrides[get_current_chat_user] = (
+        fake_get_current_chat_user_override
+    )
+    app.dependency_overrides[get_chat_completion_service] = (
+        fake_get_chat_completion_service_override
+    )
+    app.dependency_overrides[get_chat_persistence_service] = (
+        fake_get_chat_persistence_service_override
+    )
+
+    try:
+        payload = {"content": "Test content"}
+        response = client.post(
+            f"/chat/conversations/{created_conv.id}/generate",
+            json=payload,
+            headers={"Authorization": "Bearer valid-token"},
+        )
+        assert response.status_code == 502
+        assert response.json()["detail"] == "Failed to generate response"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_generate_response_returns_400_for_empty_content() -> None:
+    """Testa POST /generate retorna 400 para conteúdo vazio."""
+    internal_id = str(uuid4())
+    fake_user = FakeChatUser(id=internal_id, adss_id="adss-user-123")
+    fake_service = FakeChatCompletionService()
+
+    fake_persistence = FakeChatPersistenceService()
+    created_conv = fake_persistence.create_conversation_sync(
+        user_id=internal_id,
+        title="Test Conversation",
+        metadata={},
+    )
+
+    def fake_get_current_chat_user_override():
+        return fake_user
+
+    def fake_get_chat_completion_service_override():
+        return fake_service
+
+    def fake_get_chat_persistence_service_override():
+        return fake_persistence
+
+    app.dependency_overrides[get_current_chat_user] = (
+        fake_get_current_chat_user_override
+    )
+    app.dependency_overrides[get_chat_completion_service] = (
+        fake_get_chat_completion_service_override
+    )
+    app.dependency_overrides[get_chat_persistence_service] = (
+        fake_get_chat_persistence_service_override
+    )
+
+    try:
+        payload = {"content": ""}
+        response = client.post(
+            f"/chat/conversations/{created_conv.id}/generate",
+            json=payload,
+            headers={"Authorization": "Bearer valid-token"},
+        )
+        assert response.status_code == 400
+        assert "Content cannot be empty" in response.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_generate_response_returns_400_for_whitespace_content() -> None:
+    """Testa POST /generate retorna 400 para conteúdo whitespace-only."""
+    internal_id = str(uuid4())
+    fake_user = FakeChatUser(id=internal_id, adss_id="adss-user-123")
+    fake_service = FakeChatCompletionService()
+
+    fake_persistence = FakeChatPersistenceService()
+    created_conv = fake_persistence.create_conversation_sync(
+        user_id=internal_id,
+        title="Test Conversation",
+        metadata={},
+    )
+
+    def fake_get_current_chat_user_override():
+        return fake_user
+
+    def fake_get_chat_completion_service_override():
+        return fake_service
+
+    def fake_get_chat_persistence_service_override():
+        return fake_persistence
+
+    app.dependency_overrides[get_current_chat_user] = (
+        fake_get_current_chat_user_override
+    )
+    app.dependency_overrides[get_chat_completion_service] = (
+        fake_get_chat_completion_service_override
+    )
+    app.dependency_overrides[get_chat_persistence_service] = (
+        fake_get_chat_persistence_service_override
+    )
+
+    try:
+        payload = {"content": "   "}
+        response = client.post(
+            f"/chat/conversations/{created_conv.id}/generate",
+            json=payload,
+            headers={"Authorization": "Bearer valid-token"},
+        )
+        assert response.status_code == 400
+        assert "Content cannot be empty" in response.json()["detail"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_generate_response_with_invalid_uuid_returns_422() -> None:
+    """Testa POST /generate com UUID inválido -> 422."""
+    fake_user = FakeChatUser(id=str(uuid4()), adss_id="adss-user-123")
+
+    def fake_get_current_chat_user_override():
+        return fake_user
+
+    def fake_get_auth_service_override():
+        from labia_chat.services.auth_service import AuthService
+        return AuthService()
+
+    def fake_get_chat_user_sync_service_override():
+        from labia_chat.services.chat_user_sync import ChatUserSyncService
+        return ChatUserSyncService()
+
+    app.dependency_overrides[get_current_chat_user] = (
+        fake_get_current_chat_user_override
+    )
+    app.dependency_overrides[get_auth_service] = fake_get_auth_service_override
+    app.dependency_overrides[get_chat_user_sync_service] = (
+        fake_get_chat_user_sync_service_override
+    )
+
+    try:
+        response = client.post(
+            "/chat/conversations/invalid-uuid/generate",
+            json={"content": "Test"},
+            headers={"Authorization": "Bearer valid-token"},
+        )
+        assert response.status_code == 422
+        assert "detail" in response.json()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_generate_response_without_authorization() -> None:
+    """Testa POST /chat/conversations/{id}/generate sem Authorization -> 401."""
+    response = client.post("/chat/conversations/some-id/generate", json={"content": "Test"})
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Not authenticated"
 
 
 def test_post_message_with_invalid_uuid_returns_422() -> None:

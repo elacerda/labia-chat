@@ -17,6 +17,22 @@ class ChatCompletionError(Exception):
         super().__init__(self.message)
 
 
+class ChatCompletionNotFoundError(ChatCompletionError):
+    """Erro quando a conversa não é encontrada ou não pertence ao usuário."""
+
+    def __init__(self, message: str = "Conversation not found or does not belong to user"):
+        self.message = message
+        super().__init__(self.message)
+
+
+class ChatCompletionGenerationError(ChatCompletionError):
+    """Erro durante a geração da resposta pelo modelo."""
+
+    def __init__(self, message: str = "Failed to generate response"):
+        self.message = message
+        super().__init__(self.message)
+
+
 class ChatCompletionService:
     """
     Serviço de orquestração para geração persistente de resposta do assistente.
@@ -83,7 +99,7 @@ class ChatCompletionService:
         )
 
         if conversation is None:
-            raise ChatCompletionError(
+            raise ChatCompletionNotFoundError(
                 "Conversation not found or does not belong to user"
             )
 
@@ -115,7 +131,7 @@ class ChatCompletionService:
         except ChatGenerationError as exc:
             # Propaga erro de geração como erro do novo service
             # Mantém a mensagem user persistida conforme especificado
-            raise ChatCompletionError(
+            raise ChatCompletionGenerationError(
                 f"Failed to generate response: {exc.message}"
             ) from exc
 

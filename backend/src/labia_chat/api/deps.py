@@ -14,6 +14,7 @@ from labia_chat.core.errors import (
 from labia_chat.models.user import ChatUser
 from labia_chat.schemas.user import AuthenticatedUser
 from labia_chat.services.auth_service import AuthService
+from labia_chat.services.chat_completion import ChatCompletionService
 from labia_chat.services.chat_generation import ChatGenerationService
 from labia_chat.services.chat_persistence import ChatPersistenceService
 from labia_chat.services.chat_user_sync import ChatUserSyncService
@@ -71,6 +72,18 @@ async def get_vllm_service():
     """
     async with VLLMClient(api_key=settings.vllm_api_key) as vllm_client:
         yield ChatGenerationService(vllm_client=vllm_client)
+
+
+def get_chat_completion_service() -> ChatCompletionService:
+    """
+    Retorna instância de ChatCompletionService.
+
+    Pode ser sobrescrita via dependency_overrides nos testes.
+
+    Returns:
+        ChatCompletionService: Serviço de geração persistente de chat.
+    """
+    return ChatCompletionService()
 
 
 async def get_chat_generation_service() -> AsyncIterator[ChatGenerationService]:
