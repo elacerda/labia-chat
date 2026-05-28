@@ -576,25 +576,43 @@ bash backend/scripts/smoke_cli.sh --with-model
 bash backend/scripts/smoke_cli.sh --api-url http://127.0.0.1:8010
 ```
 
-#### O que o script valida
+    #### O que o script valida
 
-| Passo | Comando | Obrigatório | O que valida |
-|-------|---------|-------------|--------------|
-| 1 | `curl /health` | Sim | Backend está rodando |
-| 2 | `labia-chat auth me` | Sim | Token válido + usuário ativo |
-| 3 | `labia-chat conversations create` | Sim | Criação de conversa |
-| 4 | `labia-chat conversations list` | Sim | Listagem com paginação |
-| 5 | `labia-chat messages list` | Sim | Listagem de mensagens (vazia) |
-| 6 | `labia-chat chat send` | Opcional | Geração via vLLM |
-| 7 | `labia-chat messages list` | Opcional | Mensagem persistida |
-| 8 | `curl /chat/model/ping` | Opcional | Endpoint de ping direto |
+    | Passo | Comando | Obrigatório | O que valida |
+    |-------|---------|-------------|--------------|
+    | 1 | `curl /health` | Sim | Backend está rodando |
+    | 2 | `labia-chat auth me` | Sim | Token válido + usuário ativo |
+    | 3 | `labia-chat conversations create` | Sim | Criação de conversa |
+    | 4 | `labia-chat conversations list` | Sim | Listagem com paginação |
+    | 5 | `labia-chat messages list` | Sim | Listagem de mensagens (vazia ou com mensagens) |
+    | 6 | `labia-chat chat send` | Opcional | Geração via vLLM |
+    | 7 | `labia-chat messages list` | Opcional | Mensagem persistida |
+    | 8 | `curl /chat/model/ping` | Opcional | Endpoint de ping direto |
 
-#### Segurança do script
+    #### Segurança do script
 
-- **NUNCA** exibe o token na saída
-- Usa `set -euo pipefail` para falhar em erros
-| Requer `LABIA_CHAT_TOKEN` para ser definido
-| Usa `read -rsp` para entrada segura de token
+    - **NUNCA** exibe o token na saída
+    - Usa `set -euo pipefail` para falhar em erros
+    | Requer `LABIA_CHAT_TOKEN` para ser definido
+    | Usa `read -rsp` para entrada segura de token
+
+    #### Validação em modo --with-model
+
+    Quando o script é executado com `--with-model`, os passos 6 e 7 incluem geração de modelo:
+
+    - **Passo 6 (`labia-chat chat send`)**: PASSA se:
+      - O comando sai com código de status 0
+      - A saída capturada é não vazia
+      - **Não** valida conteúdo semântico da resposta do modelo
+      - **Não** exige strings específicas como "Assistente:", "Total de mensagens:", etc.
+
+    - **Passo 7 (`labia-chat messages list`)**: PASSA se:
+      - O comando sai com código de status 0
+      - Não valida conteúdo da saída
+
+    O prompt enviado ao modelo é: "Responda apenas com: SMOKE_OK"
+
+    A resposta do modelo pode variar - o script aceita qualquer resposta não vazia que retorne com sucesso.
 
 ### Validação Manual (Checklist)
 
@@ -613,7 +631,8 @@ labia-chat conversations create --title "Smoke Test"
 # 4. Listar conversas
 labia-chat conversations list --limit 5 --offset 0
 
-# 5. Listar mensagens (deve estar vazia)
+# 5. Listar mensagens (deve estar vazia para nova conversa)
+#    Saída esperada: "Nenhuma mensagem ainda."
 labia-chat messages list <conversation-id> --limit 10 --offset 0
 
 # 6. Enviar mensagem (requer vLLM)
@@ -622,6 +641,16 @@ labia-chat chat send <conversation-id> "Smoke test message"
 # 7. Listar mensagens (deve ter 1 mensagem)
 labia-chat messages list <conversation-id> --limit 10 --offset 0
 ```
+
+#### Comportamento esperado para mensagens vazias
+
+Para uma conversa recém-criada (sem mensagens), o comando `labia-chat messages list` exibe:
+
+```
+Nenhuma mensagem ainda.
+```
+
+Esta é uma saída válida e esperada. O script de smoke test aceita tanto esta saída quanto "Total de mensagens: X" (quando há mensagens).
 
 ### Sucesso vs Falha
 
