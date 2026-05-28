@@ -11,6 +11,7 @@ from labia_chat.cli_client import (
     ConnectionError,
     NotFoundError,
     PermissionError,
+    ValidationError,
 )
 
 
@@ -238,6 +239,9 @@ def auth_me_command(args: argparse.Namespace) -> int:
     except PermissionError as e:
         print(f"Erro: {e}")
         return 1
+    except ValidationError as e:
+        print(f"Erro: {e}")
+        return 1
     except BackendError as e:
         print(f"Erro: {e}")
         return 1
@@ -275,6 +279,9 @@ def conversations_create_command(args: argparse.Namespace) -> int:
     except PermissionError as e:
         print(f"Erro: {e}")
         return 1
+    except ValidationError as e:
+        print(f"Erro: {e}")
+        return 1
     except BackendError as e:
         print(f"Erro: {e}")
         return 1
@@ -309,6 +316,9 @@ def conversations_list_command(args: argparse.Namespace) -> int:
         print(f"Erro: {e}")
         return 1
     except PermissionError as e:
+        print(f"Erro: {e}")
+        return 1
+    except ValidationError as e:
         print(f"Erro: {e}")
         return 1
     except BackendError as e:
@@ -350,6 +360,9 @@ def messages_list_command(args: argparse.Namespace) -> int:
     except NotFoundError as e:
         print(f"Erro: {e}")
         return 1
+    except ValidationError as e:
+        print(f"Erro: {e}")
+        return 1
     except BackendError as e:
         print(f"Erro: {e}")
         return 1
@@ -388,6 +401,9 @@ def chat_send_command(args: argparse.Namespace) -> int:
         except PermissionError as e:
             print(f"Erro: {e}")
             return 1
+        except ValidationError as e:
+            print(f"Erro: {e}")
+            return 1
         except BackendError as e:
             print(f"Erro: {e}")
             return 1
@@ -407,6 +423,9 @@ def chat_send_command(args: argparse.Namespace) -> int:
             print(f"Erro: {e}")
             return 1
         except NotFoundError as e:
+            print(f"Erro: {e}")
+            return 1
+        except ValidationError as e:
             print(f"Erro: {e}")
             return 1
         except BackendError as e:
@@ -450,6 +469,9 @@ def chat_command(args: argparse.Namespace) -> int:
         except PermissionError as e:
             print(f"Erro: {e}")
             return 1
+        except ValidationError as e:
+            print(f"Erro: {e}")
+            return 1
         except BackendError as e:
             print(f"Erro: {e}")
             return 1
@@ -482,6 +504,9 @@ def chat_command(args: argparse.Namespace) -> int:
             except NotFoundError as e:
                 print(f"Erro: {e}")
                 return 1
+            except ValidationError as e:
+                print(f"Erro: {e}")
+                return 1
             except BackendError as e:
                 print(f"Erro: {e}")
                 return 1
@@ -500,6 +525,8 @@ def chat_command(args: argparse.Namespace) -> int:
                 except PermissionError as e:
                     print(f"Erro ao carregar histórico: {e}")
                 except NotFoundError as e:
+                    print(f"Erro ao carregar histórico: {e}")
+                except ValidationError as e:
                     print(f"Erro ao carregar histórico: {e}")
                 except BackendError as e:
                     print(f"Erro ao carregar histórico: {e}")
@@ -520,6 +547,9 @@ def chat_command(args: argparse.Namespace) -> int:
                 print(f"Erro: {e}")
                 return 1
             except PermissionError as e:
+                print(f"Erro: {e}")
+                return 1
+            except ValidationError as e:
                 print(f"Erro: {e}")
                 return 1
             except BackendError as e:
@@ -560,6 +590,8 @@ def chat_command(args: argparse.Namespace) -> int:
                     print(f"Erro ao carregar histórico: {e}\n")
                 except NotFoundError as e:
                     print(f"Erro ao carregar histórico: {e}\n")
+                except ValidationError as e:
+                    print(f"Erro ao carregar histórico: {e}\n")
                 except BackendError as e:
                     print(f"Erro ao carregar histórico: {e}\n")
                 except ConnectionError as e:
@@ -582,6 +614,9 @@ def chat_command(args: argparse.Namespace) -> int:
                 print(f"Erro: {e}\n")
                 break
             except NotFoundError as e:
+                print(f"Erro: {e}\n")
+                break
+            except ValidationError as e:
                 print(f"Erro: {e}\n")
                 break
             except BackendError as e:
@@ -822,7 +857,7 @@ def main() -> int:
             # Chat interativo
             if args.show_last < 0:
                 print("Erro: --show-last deve ser um número inteiro não negativo.")
-                return 1
+                return 2
             return chat_command(args)
         else:
             chat_parser.print_help()

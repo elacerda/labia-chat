@@ -659,7 +659,7 @@ class TestChatCommandShowLastValidation:
         with patch("sys.argv", ["labia-chat", "chat", "--show-last", "-5"]):
             result = main()
 
-            assert result == 1
+            assert result == 2
 
 
 class TestAuthMeCommand:
@@ -1334,3 +1334,162 @@ class TestMainSmokeCommands:
                 main()
 
             assert exc_info.value.code == 2
+
+
+class TestValidationErrorHandling:
+    """Testes de tratamento de ValidationError no CLI."""
+
+    def test_auth_me_validation_error(self) -> None:
+        """Testa 'auth me' com ValidationError (payload inválido)."""
+        from labia_chat.cli_client import ValidationError
+
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="test-token",
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.validate_token.side_effect = ValidationError(
+                "Payload inválido: campo 'username' ausente"
+            )
+
+            result = auth_me_command(args)
+
+            assert result == 1
+            mock_client.close.assert_called_once()
+
+    def test_conversations_create_validation_error(self) -> None:
+        """Testa 'conversations create' com ValidationError."""
+        from labia_chat.cli_client import ValidationError
+
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="test-token",
+            title=None,
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.create_conversation.side_effect = ValidationError(
+                "Payload inválido: título muito longo"
+            )
+
+            result = conversations_create_command(args)
+
+            assert result == 1
+            mock_client.close.assert_called_once()
+
+    def test_chat_send_validation_error(self) -> None:
+        """Testa 'chat send' com ValidationError."""
+        from labia_chat.cli_client import ValidationError
+
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="test-token",
+            conversation_id="123e4567-e89b-12d3-a456-426614174000",
+            message="Olá!",
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.validate_token.return_value = {
+                "id": "user123",
+                "username": "testuser",
+            }
+
+            mock_client.generate_message.side_effect = ValidationError(
+                "Payload inválido: mensagem vazia"
+            )
+
+            result = chat_send_command(args)
+
+            assert result == 1
+            mock_client.close.assert_called_once()
+
+
+class TestTimeoutAndNetworkErrorHandling:
+    """Testes de tratamento de timeout e erros de rede no CLI."""
+
+    def test_auth_me_timeout_error(self) -> None:
+        """Testa 'auth me' com timeout."""
+        from labia_chat.cli_client import ConnectionError
+
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="test-token",
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.validate_token.side_effect = ConnectionError(
+                "Timeout ao conectar com o backend"
+            )
+
+            result = auth_me_command(args)
+
+            assert result == 1
+            mock_client.close.assert_called_once()
+
+    def test_chat_command_timeout_error(self) -> None:
+        """Testa chat interativo com timeout no início."""
+        from labia_chat.cli_client import ConnectionError
+
+        args = argparse.Namespace(
+            api_url=None,
+            token=None,
+            title=None,
+            conversation_id=None,
+            show_last=10,
+        )
+
+        with patch("labia_chat.cli.resolve_api_url") as mock_resolve_api:
+            mock_resolve_api.return_value = "http://example.com"
+
+            with patch("labia_chat.cli.resolve_token") as mock_resolve_token:
+                mock_resolve_token.return_value = "test-token"
+
+                with patch("labia_chat.cli.CLIClient") as MockClient:
+                    mock_client = MagicMock()
+                    MockClient.return_value = mock_client
+
+                    mock_client.validate_token.side_effect = ConnectionError(
+                        "Timeout ao conectar com o backend"
+                    )
+
+                    result = chat_command(args)
+
+                    assert result == 1
+                    mock_client.close.assert_called_once()
+
+    def test_chat_send_network_error(self) -> None:
+        """Testa 'chat send' com erro de rede."""
+        from labia_chat.cli_client import ConnectionError
+
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="test-token",
+            conversation_id="123e4567-e89b-12d3-a456-426614174000",
+            message="Olá!",
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.validate_token.side_effect = ConnectionError(
+                "Falha ao conectar com o backend"
+            )
+
+            result = chat_send_command(args)
+
+            assert result == 1
+            mock_client.close.assert_called_once()

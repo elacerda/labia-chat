@@ -9,8 +9,10 @@ from labia_chat.cli_client import (
     AuthError,
     BackendError,
     CLIClient,
+    ConnectionError,
     NotFoundError,
     PermissionError,
+    ValidationError,
 )
 
 
@@ -608,3 +610,216 @@ class TestCLIClientClose:
         client._get_client()  # Cria o cliente
         client.close()
         assert client._client is None
+
+
+class TestCLIClientValidationError422:
+    """Testes de mapeamento HTTP 422 para ValidationError."""
+
+    def test_validate_token_422(self) -> None:
+        """Testa que HTTP 422 mapeia para ValidationError em validate_token()."""
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.status_code = 422
+            response.json.return_value = {"detail": "Validation error"}
+            error = httpx.HTTPStatusError(
+                "422 Unprocessable Entity",
+                request=MagicMock(),
+                response=response,
+            )
+            mock_client.get.side_effect = error
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(ValidationError) as exc_info:
+                client.validate_token()
+
+        assert "Dados inválidos" in str(exc_info.value)
+        assert "fake-token" not in str(exc_info.value)
+
+    def test_create_conversation_422(self) -> None:
+        """Testa que HTTP 422 mapeia para ValidationError em create_conversation()."""
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.status_code = 422
+            response.json.return_value = {"detail": "Validation error"}
+            error = httpx.HTTPStatusError(
+                "422 Unprocessable Entity",
+                request=MagicMock(),
+                response=response,
+            )
+            mock_client.post.side_effect = error
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(ValidationError) as exc_info:
+                client.create_conversation()
+
+        assert "Dados inválidos" in str(exc_info.value)
+        assert "fake-token" not in str(exc_info.value)
+
+    def test_generate_message_422(self) -> None:
+        """Testa que HTTP 422 mapeia para ValidationError em generate_message()."""
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+        client.conversation_id = "conv-123"
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.status_code = 422
+            response.json.return_value = {"detail": "Validation error"}
+            error = httpx.HTTPStatusError(
+                "422 Unprocessable Entity",
+                request=MagicMock(),
+                response=response,
+            )
+            mock_client.post.side_effect = error
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(ValidationError) as exc_info:
+                client.generate_message("Olá, mundo!")
+
+        assert "Dados inválidos" in str(exc_info.value)
+        assert "fake-token" not in str(exc_info.value)
+
+    def test_list_messages_422(self) -> None:
+        """Testa que HTTP 422 mapeia para ValidationError em list_messages()."""
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.status_code = 422
+            response.json.return_value = {"detail": "Validation error"}
+            error = httpx.HTTPStatusError(
+                "422 Unprocessable Entity",
+                request=MagicMock(),
+                response=response,
+            )
+            mock_client.get.side_effect = error
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(ValidationError) as exc_info:
+                client.list_messages("conv-123")
+
+        assert "Dados inválidos" in str(exc_info.value)
+        assert "fake-token" not in str(exc_info.value)
+
+
+class TestCLIClientConnectionError:
+    """Testes de mapeamento de erros de conexão para ConnectionError."""
+
+    def test_validate_token_timeout(self) -> None:
+        """Testa que timeout mapeia para ConnectionError em validate_token()."""
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            error = httpx.TimeoutException("Timeout")
+            mock_client.get.side_effect = error
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(ConnectionError) as exc_info:
+                client.validate_token()
+
+        assert "Timeout ao conectar ao backend" in str(exc_info.value)
+        assert "fake-token" not in str(exc_info.value)
+
+    def test_create_conversation_timeout(self) -> None:
+        """Testa que timeout mapeia para ConnectionError em create_conversation()."""
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            error = httpx.TimeoutException("Timeout")
+            mock_client.post.side_effect = error
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(ConnectionError) as exc_info:
+                client.create_conversation()
+
+        assert "Timeout ao conectar ao backend" in str(exc_info.value)
+        assert "fake-token" not in str(exc_info.value)
+
+    def test_validate_token_network_error(self) -> None:
+        """Testa que erro de rede mapeia para ConnectionError em validate_token()."""
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            error = httpx.NetworkError("Network error")
+            mock_client.get.side_effect = error
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(ConnectionError) as exc_info:
+                client.validate_token()
+
+        assert "Falha de conexão com o backend" in str(exc_info.value)
+        assert "fake-token" not in str(exc_info.value)
+
+    def test_create_conversation_network_error(self) -> None:
+        """Testa erro de rede -> ConnectionError em create_conversation()."""
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            error = httpx.NetworkError("Network error")
+            mock_client.post.side_effect = error
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(ConnectionError) as exc_info:
+                client.create_conversation()
+
+        assert "Falha de conexão com o backend" in str(exc_info.value)
+        assert "fake-token" not in str(exc_info.value)
+
+
+class TestCLIClientBackendError:
+    """Testes de mapeamento de payload inesperado para BackendError."""
+
+    def test_validate_token_unexpected_dict_payload(self) -> None:
+        """Testa que payload inesperado mapeia para BackendError em validate_token()."""
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            mock_client.get.return_value.status_code = 200
+            # Retorna uma string em vez de dict
+            mock_client.get.return_value.json.return_value = "unexpected string"
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(BackendError) as exc_info:
+                client.validate_token()
+
+        assert "Resposta inesperada do backend" in str(exc_info.value)
+        assert "fake-token" not in str(exc_info.value)
+
+    def test_list_conversations_unexpected_list_payload(self) -> None:
+        """Testa payload inesperado -> BackendError em list_conversations()."""
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            mock_client.get.return_value.status_code = 200
+            # Retorna um dict em vez de list
+            mock_client.get.return_value.json.return_value = {"unexpected": "dict"}
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(BackendError) as exc_info:
+                client.list_conversations()
+
+        assert "Resposta inesperada do backend" in str(exc_info.value)
+        assert "fake-token" not in str(exc_info.value)
