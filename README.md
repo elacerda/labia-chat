@@ -23,3 +23,18 @@ O primeiro MVP implementará:
 - teste manual com `access_token`.
 
 Veja `docs/plans/01-implementacao-mvp-1.md`.
+
+## Documentação do Backend de Chat
+
+Para documentação operacional completa do backend de chat (como rodar, testar endpoints, variáveis de ambiente, troubleshooting), veja:
+
+**[backend/docs/chat-backend.md](backend/docs/chat-backend.md)**
+
+Esta documentação cobre:
+
+- Visão geral do fluxo completo (AI-Scope → backend → vLLM → persistência)
+- Variáveis de ambiente (DATABASE_URL, VLLM_*, ADSS_*)
+- Avisos de segurança (tokens, credenciais)
+- Como rodar o backend
+- Como testar endpoints via curl
+- Problemas comuns e soluções
