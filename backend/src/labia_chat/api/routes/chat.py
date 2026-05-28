@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
 from labia_chat.api.deps import (
@@ -39,21 +39,28 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 async def list_conversations(
     chat_user: ChatUser = Depends(get_current_chat_user),
     service: ChatPersistenceService = Depends(get_chat_persistence_service),
+    limit: int = Query(
+        default=20, ge=1, le=100, description="Número máximo de conversas a retornar"
+    ),
+    offset: int = Query(default=0, ge=0, description="Número de conversas a pular"),
 ) -> list[ConversationResponse]:
     """
     Lista conversas do usuário autenticado.
 
     Request:
-        GET /chat/conversations
+        GET /chat/conversations?limit=20&offset=0
         Authorization: Bearer <AI_SCOPE_ACCESS_TOKEN>
 
     Response:
         200 OK - Lista de ConversationResponse
         401 Unauthorized - Token inválido ou ausente
         403 Forbidden - Usuário sem permissão
+        422 Unprocessable Entity - Parâmetros inválidos
         503 Service Unavailable - Serviço externo indisponível
     """
-    conversations = await service.list_conversations_for_user(chat_user.id)
+    conversations = await service.list_conversations_for_user(
+        chat_user.id, limit=limit, offset=offset
+    )
     return [ConversationResponse.model_validate(c) for c in conversations]
 
 
@@ -223,12 +230,16 @@ async def list_messages(
     conversation_id: UUID,
     chat_user: ChatUser = Depends(get_current_chat_user),
     service: ChatPersistenceService = Depends(get_chat_persistence_service),
+    limit: int = Query(
+        default=50, ge=1, le=200, description="Número máximo de mensagens a retornar"
+    ),
+    offset: int = Query(default=0, ge=0, description="Número de mensagens a pular"),
 ) -> list[MessageResponse]:
     """
     Lista mensagens de uma conversa.
 
     Request:
-        GET /chat/conversations/{conversation_id}/messages
+        GET /chat/conversations/{conversation_id}/messages?limit=50&offset=0
         Authorization: Bearer <AI_SCOPE_ACCESS_TOKEN>
 
     Response:
@@ -236,12 +247,15 @@ async def list_messages(
         401 Unauthorized - Token inválido ou ausente
         403 Forbidden - Usuário sem permissão
         404 Not Found - Conversa não encontrada ou não pertence ao usuário
+        422 Unprocessable Entity - Parâmetros inválidos
         503 Service Unavailable - Serviço externo indisponível
     """
     try:
         messages = await service.list_messages_for_user(
             conversation_id=str(conversation_id),
             user_id=chat_user.id,
+            limit=limit,
+            offset=offset,
         )
         return [MessageResponse.model_validate(m) for m in messages]
     except ValueError as exc:
@@ -264,8 +278,7 @@ async def list_messages(
     status_code=status.HTTP_200_OK,
     summary="Ping do modelo vLLM",
     description=(
-        "Endpoint diagnóstico para validar geração mínima via vLLM, "
-        "sem persistir nada."
+        "Endpoint diagnóstico para validar geração mínima via vLLM, sem persistir nada."
     ),
 )
 async def model_ping(
@@ -393,4 +406,3 @@ async def generate_response(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=error_msg,
             )
-

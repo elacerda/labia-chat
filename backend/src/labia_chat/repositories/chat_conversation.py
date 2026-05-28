@@ -38,7 +38,6 @@ class ChatConversationRepository:
         session.add(conversation)
         return conversation
 
-
     async def get_by_id(
         self, session: AsyncSession, conversation_id: str
     ) -> Optional[ChatConversation]:
@@ -76,7 +75,12 @@ class ChatConversationRepository:
         return await session.scalar(stmt)
 
     async def list_for_user(
-        self, session: AsyncSession, user_id: str, include_archived: bool = False
+        self,
+        session: AsyncSession,
+        user_id: str,
+        include_archived: bool = False,
+        limit: int = 20,
+        offset: int = 0,
     ) -> list[ChatConversation]:
         """
         Lista conversas de um usuário.
@@ -85,6 +89,8 @@ class ChatConversationRepository:
             session: Sessão async do SQLAlchemy.
             user_id: ID do usuário (string UUID).
             include_archived: Se True, inclui conversas arquivadas.
+            limit: Número máximo de conversas a retornar.
+            offset: Número de conversas a pular.
 
         Returns:
             Lista de ChatConversation ordenadas por created_at desc.
@@ -93,6 +99,7 @@ class ChatConversationRepository:
         if not include_archived:
             stmt = stmt.where(ChatConversation.archived_at.is_(None))
         stmt = stmt.order_by(ChatConversation.created_at.desc())
+        stmt = stmt.offset(offset).limit(limit)
         result = await session.scalars(stmt)
         return result.all()
 
@@ -118,4 +125,3 @@ class ChatConversationRepository:
         if conversation is not None:
             conversation.archived_at = utc_now()
         return conversation
-

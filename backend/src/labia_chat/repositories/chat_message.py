@@ -48,7 +48,11 @@ class ChatMessageRepository:
         return message
 
     async def list_for_conversation(
-        self, session: AsyncSession, conversation_id: str
+        self,
+        session: AsyncSession,
+        conversation_id: str,
+        limit: int = 50,
+        offset: int = 0,
     ) -> list[ChatMessage]:
         """
         Lista mensagens de uma conversa.
@@ -56,14 +60,15 @@ class ChatMessageRepository:
         Args:
             session: Sessão async do SQLAlchemy.
             conversation_id: ID da conversa (string UUID).
+            limit: Número máximo de mensagens a retornar.
+            offset: Número de mensagens a pular.
 
         Returns:
             Lista de ChatMessage ordenadas por sequence_index asc.
         """
-        stmt = select(ChatMessage).where(
-            ChatMessage.conversation_id == conversation_id
-        )
+        stmt = select(ChatMessage).where(ChatMessage.conversation_id == conversation_id)
         stmt = stmt.order_by(ChatMessage.sequence_index.asc())
+        stmt = stmt.offset(offset).limit(limit)
         result = await session.scalars(stmt)
         return result.all()
 
@@ -85,4 +90,3 @@ class ChatMessageRepository:
         )
         result = await session.scalar(stmt)
         return 0 if result is None else result + 1
-

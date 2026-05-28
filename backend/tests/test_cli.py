@@ -152,12 +152,14 @@ class TestChatCommand:
                     MockClient.return_value = mock_client
 
                     from labia_chat.cli_client import AuthError
+
                     mock_client.validate_token.side_effect = AuthError("Token inválido")
 
                     result = chat_command(args)
 
                     assert result == 1
                     mock_client.close.assert_called_once()
+
 
 class TestMain:
     """Testes da função main."""
@@ -297,7 +299,7 @@ class TestChatCommandConversationId:
                         "123e4567-e89b-12d3-a456-426614174000"
                     )
                     mock_client.list_messages.assert_called_once_with(
-                        "123e4567-e89b-12d3-a456-426614174000"
+                        "123e4567-e89b-12d3-a456-426614174000", limit=10
                     )
                     mock_client.generate_message.assert_called_once_with("Continuação")
                     mock_client.close.assert_called_once()
@@ -359,7 +361,7 @@ class TestChatCommandConversationId:
 
                     assert result == 0
                     mock_client.list_messages.assert_called_once_with(
-                        "123e4567-e89b-12d3-a456-426614174000"
+                        "123e4567-e89b-12d3-a456-426614174000", limit=2
                     )
 
     def test_chat_with_conversation_id_show_last_zero(self) -> None:
@@ -1007,9 +1009,7 @@ class TestChatSendCommand:
                 "username": "testuser",
             }
 
-            mock_client.generate_message.side_effect = BackendError(
-                "Erro no backend"
-            )
+            mock_client.generate_message.side_effect = BackendError("Erro no backend")
 
             result = chat_send_command(args)
 
@@ -1024,6 +1024,8 @@ class TestConversationsListCommand:
         args = argparse.Namespace(
             api_url="http://example.com",
             token="test-token",
+            limit=20,
+            offset=0,
         )
 
         with patch("labia_chat.cli.CLIClient") as MockClient:
@@ -1057,6 +1059,8 @@ class TestConversationsListCommand:
         args = argparse.Namespace(
             api_url="http://example.com",
             token="test-token",
+            limit=20,
+            offset=0,
         )
 
         with patch("labia_chat.cli.CLIClient") as MockClient:
@@ -1074,6 +1078,8 @@ class TestConversationsListCommand:
         args = argparse.Namespace(
             api_url="http://example.com",
             token="invalid-token",
+            limit=20,
+            offset=0,
         )
 
         with patch("labia_chat.cli.CLIClient") as MockClient:
@@ -1093,6 +1099,8 @@ class TestConversationsListCommand:
         args = argparse.Namespace(
             api_url="http://example.com",
             token="no-permission-token",
+            limit=20,
+            offset=0,
         )
 
         with patch("labia_chat.cli.CLIClient") as MockClient:
@@ -1117,6 +1125,8 @@ class TestMessagesListCommand:
             api_url="http://example.com",
             token="test-token",
             conversation_id="123e4567-e89b-12d3-a456-426614174000",
+            limit=50,
+            offset=0,
         )
 
         with patch("labia_chat.cli.CLIClient") as MockClient:
@@ -1150,7 +1160,7 @@ class TestMessagesListCommand:
 
             assert result == 0
             mock_client.list_messages.assert_called_once_with(
-                "123e4567-e89b-12d3-a456-426614174000"
+                "123e4567-e89b-12d3-a456-426614174000", limit=50, offset=0
             )
 
     def test_messages_list_empty(self) -> None:
@@ -1159,6 +1169,8 @@ class TestMessagesListCommand:
             api_url="http://example.com",
             token="test-token",
             conversation_id="123e4567-e89b-12d3-a456-426614174000",
+            limit=50,
+            offset=0,
         )
 
         with patch("labia_chat.cli.CLIClient") as MockClient:
@@ -1177,6 +1189,8 @@ class TestMessagesListCommand:
             api_url="http://example.com",
             token="test-token",
             conversation_id="nonexistent",
+            limit=50,
+            offset=0,
         )
 
         with patch("labia_chat.cli.CLIClient") as MockClient:
@@ -1197,6 +1211,8 @@ class TestMessagesListCommand:
             api_url="http://example.com",
             token="test-token",
             conversation_id=None,
+            limit=50,
+            offset=0,
         )
 
         # Simula o comportamento do argparse que exige conversation_id

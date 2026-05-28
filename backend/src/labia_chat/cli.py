@@ -148,6 +148,7 @@ def format_datetime(dt_str: str) -> str:
     """
     try:
         from datetime import datetime
+
         dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
         return dt.strftime("%d/%m/%Y %H:%M")
     except (ValueError, TypeError):
@@ -309,7 +310,7 @@ def conversations_list_command(args: argparse.Namespace) -> int:
 
     try:
         client.set_token(token)
-        conversations = client.list_conversations()
+        conversations = client.list_conversations(limit=args.limit, offset=args.offset)
         print_conversations_list(conversations)
         return 0
     except AuthError as e:
@@ -348,7 +349,9 @@ def messages_list_command(args: argparse.Namespace) -> int:
 
     try:
         client.set_token(token)
-        messages = client.list_messages(args.conversation_id)
+        messages = client.list_messages(
+            args.conversation_id, limit=args.limit, offset=args.offset
+        )
         print_messages_list(messages)
         return 0
     except AuthError as e:
@@ -517,7 +520,7 @@ def chat_command(args: argparse.Namespace) -> int:
             # Se show_last > 0, exibe as últimas mensagens
             if show_last > 0:
                 try:
-                    messages = client.list_messages(conversation_id)
+                    messages = client.list_messages(conversation_id, limit=show_last)
                     print(f"Últimas {min(show_last, len(messages))} mensagens:")
                     print_messages(messages, show_last)
                 except AuthError as e:
@@ -581,7 +584,9 @@ def chat_command(args: argparse.Namespace) -> int:
                     print("Erro: Nenhuma conversa selecionada.\n")
                     continue
                 try:
-                    messages = client.list_messages(client.conversation_id)
+                    messages = client.list_messages(
+                        client.conversation_id, limit=show_last
+                    )
                     print(f"Últimas {min(show_last, len(messages))} mensagens:")
                     print_messages(messages, show_last)
                 except AuthError as e:
@@ -716,6 +721,18 @@ def main() -> int:
         type=str,
         help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN ou prompt sem eco)",
     )
+    conversations_list_parser.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Número máximo de conversas a retornar (padrão: 20, máximo: 100)",
+    )
+    conversations_list_parser.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Número de conversas a pular (padrão: 0)",
+    )
 
     # Comando messages
     messages_parser = subparsers.add_parser(
@@ -745,6 +762,18 @@ def main() -> int:
         "--token",
         type=str,
         help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN ou prompt sem eco)",
+    )
+    messages_list_parser.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="Número máximo de mensagens a retornar (padrão: 50, máximo: 200)",
+    )
+    messages_list_parser.add_argument(
+        "--offset",
+        type=int,
+        default=0,
+        help="Número de mensagens a pular (padrão: 0)",
     )
 
     # Comando chat

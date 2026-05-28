@@ -5,36 +5,43 @@ import httpx
 
 class CLIError(Exception):
     """Erro específico do CLI."""
+
     pass
 
 
 class AuthError(CLIError):
     """Erro de autenticação (401)."""
+
     pass
 
 
 class PermissionError(CLIError):
     """Erro de permissão (403)."""
+
     pass
 
 
 class NotFoundError(CLIError):
     """Erro de recurso não encontrado (404)."""
+
     pass
 
 
 class ValidationError(CLIError):
     """Erro de validação (422)."""
+
     pass
 
 
 class BackendError(CLIError):
     """Erro no backend (502 ou outros)."""
+
     pass
 
 
 class ConnectionError(CLIError):
     """Erro de conexão com o backend."""
+
     pass
 
 
@@ -157,9 +164,13 @@ class CLIClient:
         except httpx.NetworkError:
             raise ConnectionError("Falha de conexão com o backend. Verifique sua rede.")
 
-    def list_conversations(self) -> list[dict]:
+    def list_conversations(self, limit: int = 20, offset: int = 0) -> list[dict]:
         """
         Lista conversas do usuário via GET /chat/conversations.
+
+        Args:
+            limit: Número máximo de conversas a retornar (padrão: 20).
+            offset: Número de conversas a pular (padrão: 0).
 
         Returns:
             list[dict]: Lista de conversas.
@@ -173,7 +184,9 @@ class CLIClient:
         """
         try:
             client = self._get_client()
-            response = client.get("/chat/conversations")
+            response = client.get(
+                "/chat/conversations", params={"limit": limit, "offset": offset}
+            )
             response.raise_for_status()
             data = response.json()
             if not isinstance(data, list):
@@ -200,12 +213,16 @@ class CLIClient:
         except httpx.NetworkError:
             raise ConnectionError("Falha de conexão com o backend. Verifique sua rede.")
 
-    def list_messages(self, conversation_id: str) -> list[dict]:
+    def list_messages(
+        self, conversation_id: str, limit: int = 50, offset: int = 0
+    ) -> list[dict]:
         """
         Lista mensagens de uma conversa via GET /chat/conversations/{id}/messages.
 
         Args:
             conversation_id: ID da conversa.
+            limit: Número máximo de mensagens a retornar (padrão: 50).
+            offset: Número de mensagens a pular (padrão: 0).
 
         Returns:
             list[dict]: Lista de mensagens.
@@ -220,7 +237,10 @@ class CLIClient:
         """
         try:
             client = self._get_client()
-            response = client.get(f"/chat/conversations/{conversation_id}/messages")
+            response = client.get(
+                f"/chat/conversations/{conversation_id}/messages",
+                params={"limit": limit, "offset": offset},
+            )
             response.raise_for_status()
             data = response.json()
             if not isinstance(data, list):

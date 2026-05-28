@@ -74,44 +74,50 @@ class FakeChatPersistenceService:
         return self.create_conversation_sync(user_id, title, metadata)
 
     async def list_conversations_for_user(
-        self, user_id: str, include_archived: bool = False
+        self,
+        user_id: str,
+        include_archived: bool = False,
+        limit: int = 20,
+        offset: int = 0,
     ):
         """Simula listagem de conversas."""
         self.list_calls.append(
-            {"user_id": user_id, "include_archived": include_archived}
+            {
+                "user_id": user_id,
+                "include_archived": include_archived,
+                "limit": limit,
+                "offset": offset,
+            }
         )
-        return [
+        all_conversations = [
             c
             for c in self.conversations
             if c.user_id == user_id and (include_archived or c.archived_at is None)
         ]
+        # Apply limit and offset
+        return all_conversations[offset : offset + limit]
 
-    async def get_conversation_for_user(
-        self, conversation_id: str, user_id: str
-    ):
+    async def get_conversation_for_user(self, conversation_id: str, user_id: str):
         """Simula obtenção de conversa por ID e usuário."""
-        self.get_calls.append(
-            {"conversation_id": conversation_id, "user_id": user_id}
-        )
+        self.get_calls.append({"conversation_id": conversation_id, "user_id": user_id})
         for c in self.conversations:
             # Convert UUID to string for comparison
-            conv_id_str = str(c.id) if hasattr(c.id, '__str__') else c.id
+            conv_id_str = str(c.id) if hasattr(c.id, "__str__") else c.id
             if conv_id_str == conversation_id and c.user_id == user_id:
                 return c
         return None
 
-    async def archive_conversation_for_user(
-        self, conversation_id: str, user_id: str
-    ):
+    async def archive_conversation_for_user(self, conversation_id: str, user_id: str):
         """Simula arquivamento de conversa."""
         self.archive_calls.append(
             {"conversation_id": conversation_id, "user_id": user_id}
         )
         for c in self.conversations:
             # Convert UUID to string for comparison
-            conv_id_str = str(c.id) if hasattr(c.id, '__str__') else c.id
+            conv_id_str = str(c.id) if hasattr(c.id, "__str__") else c.id
             if conv_id_str == conversation_id and c.user_id == user_id:
                 from datetime import datetime
+
                 c.archived_at = datetime.now()
                 return c
         return None
@@ -257,6 +263,7 @@ def test_post_model_ping_returns_502_on_generation_error() -> None:
     class FakeChatGenerationServiceWithError:
         async def generate(self, messages: list[dict[str, str]]) -> str:
             from labia_chat.services.chat_generation import ChatGenerationError
+
             raise ChatGenerationError("Model not found")
 
     fake_service = FakeChatGenerationServiceWithError()
@@ -831,6 +838,7 @@ class FakeChatMessage:
         self.model = model
         self.message_metadata = metadata or {}
         from datetime import datetime
+
         self.created_at = datetime.now()
 
 
@@ -894,7 +902,7 @@ class FakeChatPersistenceServiceWithMessages(FakeChatPersistenceService):
         # Verifica que a conversa existe e pertence ao usuário
         found_conv = None
         for c in self.conversations:
-            conv_id_str = str(c.id) if hasattr(c.id, '__str__') else c.id
+            conv_id_str = str(c.id) if hasattr(c.id, "__str__") else c.id
             if conv_id_str == conversation_id and c.user_id == user_id:
                 found_conv = c
                 break
@@ -917,17 +925,22 @@ class FakeChatPersistenceServiceWithMessages(FakeChatPersistenceService):
         )
 
     async def list_messages_for_user(
-        self, conversation_id: str, user_id: str
+        self, conversation_id: str, user_id: str, limit: int = 50, offset: int = 0
     ):
         """Simula listagem de mensagens."""
         self.list_calls.append(
-            {"conversation_id": conversation_id, "user_id": user_id}
+            {
+                "conversation_id": conversation_id,
+                "user_id": user_id,
+                "limit": limit,
+                "offset": offset,
+            }
         )
 
         # Verifica que a conversa existe e pertence ao usuário
         found_conv = None
         for c in self.conversations:
-            conv_id_str = str(c.id) if hasattr(c.id, '__str__') else c.id
+            conv_id_str = str(c.id) if hasattr(c.id, "__str__") else c.id
             if conv_id_str == conversation_id and c.user_id == user_id:
                 found_conv = c
                 break
@@ -935,11 +948,11 @@ class FakeChatPersistenceServiceWithMessages(FakeChatPersistenceService):
         if found_conv is None:
             raise ValueError("Conversa não encontrada ou não pertence ao usuário")
 
-        return [
-            m
-            for m in self.messages
-            if m.conversation_id == conversation_id
+        all_messages = [
+            m for m in self.messages if m.conversation_id == conversation_id
         ]
+        # Apply limit and offset
+        return all_messages[offset : offset + limit]
 
 
 def test_post_message_without_authorization() -> None:
@@ -1442,10 +1455,12 @@ def test_get_conversation_with_invalid_uuid_returns_422() -> None:
 
     def fake_get_auth_service_override():
         from labia_chat.services.auth_service import AuthService
+
         return AuthService()
 
     def fake_get_chat_user_sync_service_override():
         from labia_chat.services.chat_user_sync import ChatUserSyncService
+
         return ChatUserSyncService()
 
     app.dependency_overrides[get_current_chat_user] = (
@@ -1633,6 +1648,7 @@ def test_generate_response_returns_404_when_conversation_not_found() -> None:
             model: str | None = None,
         ):
             from labia_chat.services.chat_completion import ChatCompletionNotFoundError
+
             raise ChatCompletionNotFoundError(
                 "Conversation not found or does not belong to user"
             )
@@ -1694,6 +1710,7 @@ def test_generate_response_returns_502_on_generation_error() -> None:
             from labia_chat.services.chat_completion import (
                 ChatCompletionGenerationError,
             )
+
             raise ChatCompletionGenerationError("Failed to generate response")
 
     fake_service = FakeChatCompletionServiceWithGenerationError()
@@ -1836,10 +1853,12 @@ def test_generate_response_with_invalid_uuid_returns_422() -> None:
 
     def fake_get_auth_service_override():
         from labia_chat.services.auth_service import AuthService
+
         return AuthService()
 
     def fake_get_chat_user_sync_service_override():
         from labia_chat.services.chat_user_sync import ChatUserSyncService
+
         return ChatUserSyncService()
 
     app.dependency_overrides[get_current_chat_user] = (
@@ -1882,10 +1901,12 @@ def test_post_message_with_invalid_uuid_returns_422() -> None:
 
     def fake_get_auth_service_override():
         from labia_chat.services.auth_service import AuthService
+
         return AuthService()
 
     def fake_get_chat_user_sync_service_override():
         from labia_chat.services.chat_user_sync import ChatUserSyncService
+
         return ChatUserSyncService()
 
     app.dependency_overrides[get_current_chat_user] = (
@@ -1918,10 +1939,12 @@ def test_archive_conversation_with_invalid_uuid_returns_422() -> None:
 
     def fake_get_auth_service_override():
         from labia_chat.services.auth_service import AuthService
+
         return AuthService()
 
     def fake_get_chat_user_sync_service_override():
         from labia_chat.services.chat_user_sync import ChatUserSyncService
+
         return ChatUserSyncService()
 
     app.dependency_overrides[get_current_chat_user] = (
@@ -1953,10 +1976,12 @@ def test_get_messages_with_invalid_uuid_returns_422() -> None:
 
     def fake_get_auth_service_override():
         from labia_chat.services.auth_service import AuthService
+
         return AuthService()
 
     def fake_get_chat_user_sync_service_override():
         from labia_chat.services.chat_user_sync import ChatUserSyncService
+
         return ChatUserSyncService()
 
     app.dependency_overrides[get_current_chat_user] = (

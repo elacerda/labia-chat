@@ -68,9 +68,13 @@ class FakeConversationRepository:
         fake_conv.user_id = user_id
         return fake_conv
 
-    async def list_for_user(self, session, user_id, include_archived=False):
+    async def list_for_user(
+        self, session, user_id, include_archived=False, limit=20, offset=0
+    ):
         """Simula list_for_user."""
-        self.list_for_user_calls.append((session, user_id, include_archived))
+        self.list_for_user_calls.append(
+            (session, user_id, include_archived, limit, offset)
+        )
         return []
 
     async def archive_for_user(self, session, conversation_id, user_id):
@@ -115,9 +119,11 @@ class FakeMessageRepository:
         fake_msg.message_metadata = metadata or {}
         return fake_msg
 
-    async def list_for_conversation(self, session, conversation_id):
+    async def list_for_conversation(self, session, conversation_id, limit=50, offset=0):
         """Simula list_for_conversation."""
-        self.list_for_conversation_calls.append((session, conversation_id))
+        self.list_for_conversation_calls.append(
+            (session, conversation_id, limit, offset)
+        )
         return []
 
     async def get_next_sequence_index(self, session, conversation_id):
@@ -372,4 +378,3 @@ class TestChatPersistenceService:
 
         assert isinstance(service.conversation_repository, ChatConversationRepository)
         assert isinstance(service.message_repository, ChatMessageRepository)
-

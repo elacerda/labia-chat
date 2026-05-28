@@ -57,9 +57,7 @@ class ChatPersistenceService:
                 metadata=metadata,
             )
 
-    async def get_conversation_for_user(
-        self, conversation_id: str, user_id: str
-    ):
+    async def get_conversation_for_user(self, conversation_id: str, user_id: str):
         """
         Obtém uma conversa pelo ID verificando pertencimento ao usuário.
 
@@ -78,7 +76,11 @@ class ChatPersistenceService:
             )
 
     async def list_conversations_for_user(
-        self, user_id: str, include_archived: bool = False
+        self,
+        user_id: str,
+        include_archived: bool = False,
+        limit: int = 20,
+        offset: int = 0,
     ):
         """
         Lista conversas de um usuário.
@@ -86,6 +88,8 @@ class ChatPersistenceService:
         Args:
             user_id: ID do usuário (string UUID).
             include_archived: Se True, inclui conversas arquivadas.
+            limit: Número máximo de conversas a retornar.
+            offset: Número de conversas a pular.
 
         Returns:
             Lista de ChatConversation ordenadas por created_at desc.
@@ -95,11 +99,11 @@ class ChatPersistenceService:
                 session=session,
                 user_id=user_id,
                 include_archived=include_archived,
+                limit=limit,
+                offset=offset,
             )
 
-    async def archive_conversation_for_user(
-        self, conversation_id: str, user_id: str
-    ):
+    async def archive_conversation_for_user(self, conversation_id: str, user_id: str):
         """
         Arquiva uma conversa pertencente ao usuário.
 
@@ -159,9 +163,7 @@ class ChatPersistenceService:
             )
 
             if conversation is None:
-                raise ValueError(
-                    "Conversa não encontrada ou não pertence ao usuário"
-                )
+                raise ValueError("Conversa não encontrada ou não pertence ao usuário")
 
             # Calcula o próximo índice de sequência
             sequence_index = await self.message_repository.get_next_sequence_index(
@@ -181,7 +183,7 @@ class ChatPersistenceService:
             )
 
     async def list_messages_for_user(
-        self, conversation_id: str, user_id: str
+        self, conversation_id: str, user_id: str, limit: int = 50, offset: int = 0
     ):
         """
         Lista mensagens de uma conversa, validando que a conversa pertence ao usuário.
@@ -189,6 +191,8 @@ class ChatPersistenceService:
         Args:
             conversation_id: ID da conversa (string UUID).
             user_id: ID do usuário (string UUID).
+            limit: Número máximo de mensagens a retornar.
+            offset: Número de mensagens a pular.
 
         Returns:
             Lista de ChatMessage ordenadas por sequence_index asc.
@@ -205,12 +209,12 @@ class ChatPersistenceService:
             )
 
             if conversation is None:
-                raise ValueError(
-                    "Conversa não encontrada ou não pertence ao usuário"
-                )
+                raise ValueError("Conversa não encontrada ou não pertence ao usuário")
 
             # Lista as mensagens
             return await self.message_repository.list_for_conversation(
                 session=session,
                 conversation_id=conversation_id,
+                limit=limit,
+                offset=offset,
             )

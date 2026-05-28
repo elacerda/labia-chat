@@ -366,7 +366,9 @@ class TestCLIClientListMessages:
         assert len(result) == 2
         assert result[0]["content"] == "Olá!"
         assert result[1]["content"] == "Olá! Como posso ajudar?"
-        mock_client.get.assert_called_once_with("/chat/conversations/conv-123/messages")
+        mock_client.get.assert_called_once_with(
+            "/chat/conversations/conv-123/messages", params={"limit": 50, "offset": 0}
+        )
 
     def test_list_messages_401(self) -> None:
         """Testa listagem de mensagens com token inválido (401)."""
@@ -444,7 +446,9 @@ class TestCLIClientGetConversation:
 
         assert result["id"] == "123e4567-e89b-12d3-a456-426614174000"
         assert result["title"] == "Test Conversation"
-        mock_client.get.assert_called_once_with("/chat/conversations/123e4567-e89b-12d3-a456-426614174000")
+        mock_client.get.assert_called_once_with(
+            "/chat/conversations/123e4567-e89b-12d3-a456-426614174000"
+        )
 
     def test_get_conversation_401(self) -> None:
         """Testa obtenção de conversa com token inválido (401)."""
@@ -533,7 +537,9 @@ class TestCLIClientListConversations:
         assert len(result) == 2
         assert result[0]["id"] == "123e4567-e89b-12d3-a456-426614174000"
         assert result[1]["title"] == "Conversa 2"
-        mock_client.get.assert_called_once_with("/chat/conversations")
+        mock_client.get.assert_called_once_with(
+            "/chat/conversations", params={"limit": 20, "offset": 0}
+        )
 
     def test_list_conversations_empty(self) -> None:
         """Testa listagem de conversas sem resultados."""
@@ -551,7 +557,9 @@ class TestCLIClientListConversations:
             result = client.list_conversations()
 
         assert len(result) == 0
-        mock_client.get.assert_called_once_with("/chat/conversations")
+        mock_client.get.assert_called_once_with(
+            "/chat/conversations", params={"limit": 20, "offset": 0}
+        )
 
     def test_list_conversations_401(self) -> None:
         """Testa listagem de conversas com token inválido (401)."""
