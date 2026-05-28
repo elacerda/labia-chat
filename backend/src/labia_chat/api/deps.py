@@ -1,5 +1,6 @@
 """Dependências FastAPI para autenticação e autorização."""
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, Header, HTTPException
@@ -72,17 +73,25 @@ async def get_vllm_service():
         yield ChatGenerationService(vllm_client=vllm_client)
 
 
-def get_chat_generation_service() -> ChatGenerationService:
+async def get_chat_generation_service() -> AsyncIterator[ChatGenerationService]:
     """
-    Retorna instância de ChatGenerationService.
+    Retorna instância de ChatGenerationService com VLLMClient gerenciado.
 
-    Cria um ChatGenerationService usando VLLMClient configurado por settings.
+    Gerencia o ciclo de vida do VLLMClient como async context manager
+    para garantir que a conexão HTTP seja aberta e fechada corretamente.
+
     Pode ser sobrescrita via dependency_overrides nos testes.
 
-    Returns:
+    Yields:
         ChatGenerationService: Serviço de geração de chat.
     """
-    return ChatGenerationService(vllm_client=VLLMClient(api_key=settings.vllm_api_key))
+    async with VLLMClient(
+        base_url=settings.vllm_base_url,
+        model=settings.vllm_model,
+        timeout=settings.vllm_timeout_seconds,
+        api_key=settings.vllm_api_key,
+    ) as vllm_client:
+        yield ChatGenerationService(vllm_client=vllm_client)
 
 
 def extract_bearer_token(

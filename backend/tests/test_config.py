@@ -10,9 +10,13 @@ from labia_chat.core.config import Settings
 class TestSettings:
     """Testes para as configurações da aplicação."""
 
-    def test_settings_defaults(self):
+    def test_settings_defaults(self, monkeypatch):
         """Verifica que os valores default estão corretos."""
-        settings = Settings()
+        monkeypatch.delenv("VLLM_BASE_URL", raising=False)
+        monkeypatch.delenv("VLLM_MODEL", raising=False)
+        monkeypatch.delenv("VLLM_TIMEOUT_SECONDS", raising=False)
+        monkeypatch.delenv("VLLM_API_KEY", raising=False)
+        settings = Settings(_env_file=None)
 
         # Configurações da aplicação
         assert settings.app_name == "labia-chat"
