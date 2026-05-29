@@ -36,6 +36,13 @@ O backend chama o servidor vLLM (OpenAI-compatible) para gerar a resposta do ass
 
 A resposta gerada é persistida como uma mensagem `assistant` com o campo `model` preenchido com o nome do modelo usado.
 
+O backend oferece dois modos de geração persistente:
+
+- não-streaming: `POST /chat/conversations/{conversation_id}/generate`;
+- streaming SSE: `POST /chat/conversations/{conversation_id}/generate/stream`.
+
+O endpoint `/generate` permanece disponível e retorna a mensagem completa em JSON. O endpoint `/generate/stream` retorna `text/event-stream`, envia chunks normais como texto puro em `data:`, e emite eventos estruturados `done` ou `error`.
+
 ---
 
 ## Variáveis de Ambiente
@@ -263,6 +270,40 @@ Resposta esperada:
 
 ---
 
+## Como Chamar Geração Persistente com Streaming SSE
+
+```bash
+curl -N -X POST "http://127.0.0.1:8010/chat/conversations/${CONVERSATION_ID}/generate/stream" \
+  -H "Authorization: Bearer ${AI_SCOPE_ACCESS_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -H "Accept: text/event-stream" \
+  -d '{"content": "Responda em Markdown com duas linhas."}'
+```
+
+Resposta esperada:
+
+```text
+data: Primeira linha.
+
+data: Segunda linha.
+
+event: done
+data: {"message_id":"uuid-da-mensagem-assistant"}
+```
+
+Contrato do stream:
+
+- chunks normais são texto puro em mensagens SSE `data:`;
+- chunks normais não usam JSON `{"token": "..."}`;
+- quebras de linha, linhas em branco, indentação e Markdown são preservados por múltiplas linhas `data:`;
+- `event: done` traz `{"message_id":"..."}`;
+- `event: error` traz `{"detail":"..."}`;
+- somente `done` e `error` devem ser parseados como JSON.
+
+Detalhes: `backend/docs/chat-backend-streaming-addendum.md` e `docs/streaming/api-contract.md`.
+
+---
+
 ## Como Listar Conversas (com paginação)
 
 ```bash
@@ -485,6 +526,7 @@ ChatCompletionService
 | GET | `/chat/conversations/{id}/messages` | Lista mensagens | Sim |
 | POST | `/chat/model/ping` | Teste de geração (sem persistência) | Sim |
 | POST | `/chat/conversations/{id}/generate` | Geração persistente | Sim |
+| POST | `/chat/conversations/{id}/generate/stream` | Geração persistente em streaming SSE | Sim |
 
 ---
 
@@ -509,17 +551,18 @@ python -m ruff check src/ tests/
 ```bash
 cd backend
 python -m alembic current
+```
 
 ---
 
 ## CLI de Chat
 
-O próximo cliente oficial de validação do backend será o CLI de chat.
+O cliente oficial de validação do backend é o CLI de chat.
 
 Objetivo:
 
 - validar o backend como cliente real antes do frontend;
-- testar autenticação, criação de conversa, geração persistente e leitura de histórico;
+- testar autenticação, criação de conversa, geração persistente, streaming SSE e leitura de histórico;
 - servir como ferramenta de smoke test operacional.
 
 Documentação do CLI:
@@ -529,6 +572,20 @@ Documentação do CLI:
 O CLI deve chamar apenas o backend. Ele não deve chamar o vLLM diretamente.
 
 O histórico de conversas e mensagens deve continuar tendo o backend/PostgreSQL como fonte de verdade. O CLI não deve persistir mensagens localmente.
+
+O CLI usa streaming por padrão:
+
+```bash
+labia-chat chat send <conversation-id> "Mensagem"
+labia-chat chat
+```
+
+Fallback não-streaming:
+
+```bash
+labia-chat chat send <conversation-id> "Mensagem" --no-stream
+labia-chat chat --no-stream
+```
 
 ---
 
@@ -576,43 +633,43 @@ bash backend/scripts/smoke_cli.sh --with-model
 bash backend/scripts/smoke_cli.sh --api-url http://127.0.0.1:8010
 ```
 
-    #### O que o script valida
+#### O que o script valida
 
-    | Passo | Comando | Obrigatório | O que valida |
-    |-------|---------|-------------|--------------|
-    | 1 | `curl /health` | Sim | Backend está rodando |
-    | 2 | `labia-chat auth me` | Sim | Token válido + usuário ativo |
-    | 3 | `labia-chat conversations create` | Sim | Criação de conversa |
-    | 4 | `labia-chat conversations list` | Sim | Listagem com paginação |
-    | 5 | `labia-chat messages list` | Sim | Listagem de mensagens (vazia ou com mensagens) |
-    | 6 | `labia-chat chat send` | Opcional | Geração via vLLM |
-    | 7 | `labia-chat messages list` | Opcional | Mensagem persistida |
-    | 8 | `curl /chat/model/ping` | Opcional | Endpoint de ping direto |
+| Passo | Comando | Obrigatório | O que valida |
+|-------|---------|-------------|--------------|
+| 1 | `curl /health` | Sim | Backend está rodando |
+| 2 | `labia-chat auth me` | Sim | Token válido + usuário ativo |
+| 3 | `labia-chat conversations create` | Sim | Criação de conversa |
+| 4 | `labia-chat conversations list` | Sim | Listagem com paginação |
+| 5 | `labia-chat messages list` | Sim | Listagem de mensagens (vazia ou com mensagens) |
+| 6 | `labia-chat chat send` | Opcional | Geração via vLLM, usando streaming por padrão |
+| 7 | `labia-chat messages list` | Opcional | Mensagem persistida |
+| 8 | `curl /chat/model/ping` | Opcional | Endpoint de ping direto |
 
-    #### Segurança do script
+#### Segurança do script
 
-    - **NUNCA** exibe o token na saída
-    - Usa `set -euo pipefail` para falhar em erros
-    | Requer `LABIA_CHAT_TOKEN` para ser definido
-    | Usa `read -rsp` para entrada segura de token
+- **NUNCA** exibe o token na saída.
+- Usa `set -euo pipefail` para falhar em erros.
+- Requer `LABIA_CHAT_TOKEN` definido.
+- Usa `read -rsp` para entrada segura de token.
 
-    #### Validação em modo --with-model
+#### Validação em modo --with-model
 
-    Quando o script é executado com `--with-model`, os passos 6 e 7 incluem geração de modelo:
+Quando o script é executado com `--with-model`, os passos 6 e 7 incluem geração de modelo:
 
-    - **Passo 6 (`labia-chat chat send`)**: PASSA se:
-      - O comando sai com código de status 0
-      - A saída capturada é não vazia
-      - **Não** valida conteúdo semântico da resposta do modelo
-      - **Não** exige strings específicas como "Assistente:", "Total de mensagens:", etc.
+- **Passo 6 (`labia-chat chat send`)**: PASSA se:
+  - o comando sai com código de status 0;
+  - a saída capturada é não vazia;
+  - não valida conteúdo semântico da resposta do modelo;
+  - não exige strings específicas como "Assistente:", "Total de mensagens:", etc.
 
-    - **Passo 7 (`labia-chat messages list`)**: PASSA se:
-      - O comando sai com código de status 0
-      - Não valida conteúdo da saída
+- **Passo 7 (`labia-chat messages list`)**: PASSA se:
+  - o comando sai com código de status 0;
+  - não valida conteúdo da saída.
 
-    O prompt enviado ao modelo é: "Responda apenas com: SMOKE_OK"
+O prompt enviado ao modelo é: "Responda apenas com: SMOKE_OK".
 
-    A resposta do modelo pode variar - o script aceita qualquer resposta não vazia que retorne com sucesso.
+A resposta do modelo pode variar; o script aceita qualquer resposta não vazia que retorne com sucesso.
 
 ### Validação Manual (Checklist)
 
@@ -638,9 +695,21 @@ labia-chat messages list <conversation-id> --limit 10 --offset 0
 # 6. Enviar mensagem (requer vLLM)
 labia-chat chat send <conversation-id> "Smoke test message"
 
+# 6b. Fallback não-streaming
+labia-chat chat send <conversation-id> "Smoke test message" --no-stream
+
 # 7. Listar mensagens (deve ter 1 mensagem)
 labia-chat messages list <conversation-id> --limit 10 --offset 0
 ```
+
+### Checklist final de PR
+
+- [ ] `python -m ruff check src/ tests/`
+- [ ] `python -m pytest tests/ -q`
+- [ ] `python -m alembic current`
+- [ ] `bash backend/scripts/smoke_cli.sh`
+- [ ] `bash backend/scripts/smoke_cli.sh --with-model`
+- [ ] Checagem manual de streaming via CLI ou `curl -N`
 
 #### Comportamento esperado para mensagens vazias
 
@@ -668,7 +737,3 @@ Esta é uma saída válida e esperada. O script de smoke test aceita tanto esta 
 | `403 Forbidden` | Sem role `chat_vllm` | Solicite a role ao administrador |
 | `502 Bad Gateway` | vLLM indisponível | Inicie o vLLM ou use `--with-model` apenas quando vLLM estiver rodando |
 | `connection refused` | Backend não rodando | Inicie o backend em `http://127.0.0.1:8010` |
-
----
-
-## Testes

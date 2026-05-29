@@ -1,5 +1,6 @@
 """Serviço de orquestração para geração persistente de resposta do assistente."""
 
+from collections.abc import AsyncIterator
 from typing import Optional
 
 from labia_chat.services.chat_generation import (
@@ -150,3 +151,78 @@ class ChatCompletionService:
 
         return assistant_message
 
+    async def complete_stream(
+        self,
+        conversation_id: str,
+        user_id: str,
+        content: str,
+        model: Optional[str] = None,
+    ) -> AsyncIterator[tuple[str, str | None]]:
+        """
+        Prepara e streama uma resposta do assistente para uma conversa.
+
+        Yields:
+            ("text", chunk) para deltas de texto.
+            ("done", message_id) após persistir a mensagem assistant.
+        """
+        if not content or not content.strip():
+            raise ValueError("Content cannot be empty or whitespace only")
+
+        conversation = await self.persistence_service.get_conversation_for_user(
+            conversation_id=conversation_id,
+            user_id=user_id,
+        )
+
+        if conversation is None:
+            raise ChatCompletionNotFoundError(
+                "Conversation not found or does not belong to user"
+            )
+
+        await self.persistence_service.add_message_for_user(
+            conversation_id=conversation_id,
+            user_id=user_id,
+            role="user",
+            content=content,
+            model=None,
+            metadata=None,
+        )
+
+        messages = await self.persistence_service.list_messages_for_user(
+            conversation_id=conversation_id,
+            user_id=user_id,
+        )
+
+        openai_messages = [
+            {"role": message.role, "content": message.content}
+            for message in messages
+        ]
+
+        async def stream_events() -> AsyncIterator[tuple[str, str | None]]:
+            response_chunks: list[str] = []
+            try:
+                async for chunk in self.generation_service.generate_stream(
+                    openai_messages
+                ):
+                    response_chunks.append(chunk)
+                    yield "text", chunk
+            except ChatGenerationError as exc:
+                raise ChatCompletionGenerationError(
+                    "Failed to generate response"
+                ) from exc
+
+            response_text = "".join(response_chunks)
+            if response_text == "":
+                raise ChatCompletionGenerationError("Failed to generate response")
+
+            assistant_message = await self.persistence_service.add_message_for_user(
+                conversation_id=conversation_id,
+                user_id=user_id,
+                role="assistant",
+                content=response_text,
+                model=model,
+                metadata=None,
+            )
+            message_id = getattr(assistant_message, "id", None)
+            yield "done", str(message_id) if message_id is not None else None
+
+        return stream_events()

@@ -1,5 +1,6 @@
 """Serviço de geração de chat usando VLLM."""
 
+from collections.abc import AsyncIterator
 from typing import Optional
 
 from labia_chat.core.config import settings
@@ -93,6 +94,38 @@ class ChatGenerationService:
                 f"VLLM failed to generate response: {exc.message}"
             ) from exc
 
+    async def generate_stream(
+        self,
+        messages: list[dict[str, str]],
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> AsyncIterator[str]:
+        """
+        Stream a response using the configured VLLM client.
+
+        Yields:
+            Non-empty text deltas from the model.
+
+        Raises:
+            ChatGenerationError: If messages is invalid or VLLM streaming fails.
+        """
+        self._validate_messages(messages)
+
+        temp = temperature if temperature is not None else self.temperature
+        tokens = max_tokens if max_tokens is not None else self.max_tokens
+
+        try:
+            async for chunk in self.vllm_client.generate_stream(
+                messages=messages,
+                temperature=temp,
+                max_tokens=tokens,
+            ):
+                yield chunk
+        except VLLMClientError as exc:
+            raise ChatGenerationError(
+                f"VLLM failed to stream response: {exc.message}"
+            ) from exc
+
     def _validate_messages(self, messages: list[dict[str, str]]) -> None:
         """
         Valida a lista de mensagens.
@@ -153,4 +186,3 @@ class ChatGenerationService:
                 raise ChatGenerationError(
                     f"Invalid role: {role}. Allowed roles: {roles_str}"
                 )
-

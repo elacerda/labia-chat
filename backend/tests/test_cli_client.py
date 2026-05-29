@@ -322,6 +322,111 @@ class TestCLIClientGenerateMessage:
         assert "Backend não conseguiu obter resposta do modelo" in str(exc_info.value)
 
 
+class TestCLIClientStreamGenerateMessage:
+    """Testes de geração de mensagem via SSE."""
+
+    @pytest.mark.parametrize(
+        ("expected", "lines"),
+        [
+            ("hello", ["data: hello", ""]),
+            ("\n", ["data:", "data:", ""]),
+            ("\n\n", ["data:", "data:", "data:", ""]),
+            ("hello\n", ["data: hello", "data:", ""]),
+            ("```python\n", ["data: ```python", "data:", ""]),
+        ],
+    )
+    def test_sse_parser_preserves_text_chunks(
+        self, expected: str, lines: list[str]
+    ) -> None:
+        """Testa preservação de chunks SSE de texto puro."""
+        chunks = list(CLIClient._iter_sse_text_chunks(lines))
+
+        assert chunks == [expected]
+
+    def test_sse_done_terminates_stream(self) -> None:
+        """Testa que event: done encerra o stream."""
+        lines = [
+            "data: hello",
+            "",
+            "event: done",
+            'data: {"message_id":"msg-123"}',
+            "",
+            "data: ignored",
+            "",
+        ]
+
+        chunks = list(CLIClient._iter_sse_text_chunks(lines))
+
+        assert chunks == ["hello"]
+
+    def test_sse_error_maps_to_backend_error(self) -> None:
+        """Testa que event: error vira erro seguro do backend."""
+        lines = [
+            "event: error",
+            'data: {"detail":"Failed to generate response"}',
+            "",
+        ]
+
+        with pytest.raises(BackendError) as exc_info:
+            list(CLIClient._iter_sse_text_chunks(lines))
+
+        assert "Failed to generate response" in str(exc_info.value)
+
+    def test_stream_generate_message_success(self) -> None:
+        """Testa consumo do endpoint streaming."""
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+        client.conversation_id = "conv-123"
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.iter_lines.return_value = [
+                "data: Olá",
+                "",
+                "data: , mundo",
+                "",
+                "event: done",
+                'data: {"message_id":"msg-123"}',
+                "",
+            ]
+            mock_client.stream.return_value.__enter__.return_value = response
+            mock_get_client.return_value = mock_client
+
+            chunks = list(client.stream_generate_message("Olá, mundo!"))
+
+        assert chunks == ["Olá", ", mundo"]
+        mock_client.stream.assert_called_once_with(
+            "POST",
+            "/chat/conversations/conv-123/generate/stream",
+            json={"content": "Olá, mundo!"},
+            headers={"Accept": "text/event-stream"},
+        )
+
+    def test_stream_generate_message_500(self) -> None:
+        """Testa erro HTTP 500 no endpoint streaming."""
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+        client.conversation_id = "conv-123"
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.status_code = 500
+            response.raise_for_status.side_effect = httpx.HTTPStatusError(
+                "500 Internal Server Error",
+                request=MagicMock(),
+                response=response,
+            )
+            mock_client.stream.return_value.__enter__.return_value = response
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(BackendError) as exc_info:
+                list(client.stream_generate_message("Olá, mundo!"))
+
+        assert "Backend não conseguiu obter resposta do modelo" in str(exc_info.value)
+
+
 class TestCLIClientListMessages:
     """Testes de listagem de mensagens."""
 

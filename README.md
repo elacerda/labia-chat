@@ -15,9 +15,11 @@ O projeto possui atualmente:
 - integração com vLLM OpenAI-compatible;
 - endpoint diagnóstico de geração;
 - endpoint de geração persistente;
+- endpoint SSE de geração persistente em streaming;
+- CLI de chat com streaming por padrão;
 - documentação operacional do backend.
 
-A decisão atual é finalizar completamente o backend antes de iniciar o frontend. O próximo bloco de desenvolvimento é um CLI de chat para validar o backend como cliente real.
+A decisão atual é manter o contrato backend documentado antes de iniciar o frontend.
 
 ## Estrutura principal
 
@@ -28,6 +30,7 @@ A decisão atual é finalizar completamente o backend antes de iniciar o fronten
 - `docs/cli-chat.md` — especificação inicial do CLI.
 - `docs/backend-completion-checklist.md` — checklist para fechamento do backend.
 - `docs/frontend-handoff.md` — critérios para iniciar o frontend depois do backend freeze.
+- `docs/streaming/` — contrato final de streaming SSE e handoff para frontend.
 - `legacy/nextjs-prototype/` — protótipo Next.js legado preservado.
 
 ## Documentação
@@ -60,6 +63,23 @@ Veja:
 
 - [docs/cli-chat.md](docs/cli-chat.md)
 
+O CLI usa streaming por padrão em `labia-chat chat send <conversation-id> "mensagem"` e `labia-chat chat`.
+Use `--no-stream` nesses comandos para forçar o endpoint não-streaming `/generate`.
+
+### Streaming SSE
+
+Veja:
+
+- [docs/streaming/README.md](docs/streaming/README.md)
+- [docs/streaming/api-contract.md](docs/streaming/api-contract.md)
+- [docs/streaming/frontend-integration.md](docs/streaming/frontend-integration.md)
+
+Contrato principal:
+
+- `POST /chat/conversations/{conversation_id}/generate/stream` retorna `text/event-stream`.
+- Chunks normais são mensagens SSE `data:` com texto puro, não objetos JSON `{"token": "..."}`.
+- `POST /chat/conversations/{conversation_id}/generate` continua disponível como endpoint não-streaming.
+
 ### Handoff para frontend
 
 Veja:
@@ -72,6 +92,11 @@ Veja:
     python -m pytest tests/ -v
     python -m ruff check src/ tests/
     python -m alembic current
+
+Smoke operacional:
+
+    bash backend/scripts/smoke_cli.sh
+    bash backend/scripts/smoke_cli.sh --with-model
 
 ## Portas locais adotadas
 

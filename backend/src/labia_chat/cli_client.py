@@ -1,5 +1,8 @@
 """Cliente HTTP para o backend do labia-chat."""
 
+import json
+from collections.abc import Iterable, Iterator
+
 import httpx
 
 
@@ -374,6 +377,122 @@ class CLIClient:
             raise ConnectionError("Timeout ao conectar ao backend. Tente novamente.")
         except httpx.NetworkError:
             raise ConnectionError("Falha de conexão com o backend. Verifique sua rede.")
+
+    def stream_generate_message(self, content: str) -> Iterator[str]:
+        """
+        Streama uma resposta do assistente via endpoint SSE de geração.
+
+        Args:
+            content: Conteúdo da mensagem do usuário.
+
+        Yields:
+            Chunks de texto do assistente.
+
+        Raises:
+            AuthError: Se o token for inválido (401).
+            PermissionError: Se o usuário não tiver permissão (403).
+            NotFoundError: Se a conversa não for encontrada (404).
+            ValidationError: Se houver erro de validação (422).
+            BackendError: Se houver erro no backend ou evento SSE de erro.
+            ConnectionError: Se não conseguir conectar ao backend.
+        """
+        if not self.conversation_id:
+            raise CLIError("Nenhuma conversa selecionada. Crie uma conversa primeiro.")
+
+        try:
+            client = self._get_client()
+            with client.stream(
+                "POST",
+                f"/chat/conversations/{self.conversation_id}/generate/stream",
+                json={"content": content},
+                headers={"Accept": "text/event-stream"},
+            ) as response:
+                response.raise_for_status()
+                yield from self._iter_sse_text_chunks(response.iter_lines())
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 401:
+                raise AuthError(
+                    "Token inválido ou expirado. Gere um novo token AI-Scope."
+                )
+            elif exc.response.status_code == 403:
+                raise PermissionError(
+                    "Usuário autenticado, mas sem permissão chat_vllm."
+                )
+            elif exc.response.status_code == 404:
+                raise NotFoundError("Conversa não encontrada para este usuário.")
+            elif exc.response.status_code == 422:
+                raise ValidationError(
+                    "Dados inválidos. Verifique a entrada e tente novamente."
+                )
+            elif exc.response.status_code in (500, 502):
+                raise BackendError("Backend não conseguiu obter resposta do modelo.")
+            raise
+        except httpx.TimeoutException:
+            raise ConnectionError("Timeout ao conectar ao backend. Tente novamente.")
+        except httpx.NetworkError:
+            raise ConnectionError("Falha de conexão com o backend. Verifique sua rede.")
+
+    @classmethod
+    def _iter_sse_text_chunks(cls, lines: Iterable[str]) -> Iterator[str]:
+        for event_name, data in cls._iter_sse_events(lines):
+            if event_name == "message":
+                yield data
+            elif event_name == "done":
+                cls._parse_sse_control_json(data)
+                return
+            elif event_name == "error":
+                payload = cls._parse_sse_control_json(data)
+                detail = payload.get("detail", "Failed to generate response")
+                raise BackendError(str(detail))
+
+    @staticmethod
+    def _iter_sse_events(lines: Iterable[str]) -> Iterator[tuple[str, str]]:
+        event_name = "message"
+        data_lines: list[str] = []
+
+        def emit() -> tuple[str, str] | None:
+            nonlocal event_name, data_lines
+            if not data_lines and event_name == "message":
+                return None
+            event = (event_name, "\n".join(data_lines))
+            event_name = "message"
+            data_lines = []
+            return event
+
+        for raw_line in lines:
+            line = raw_line.rstrip("\r")
+            if line == "":
+                event = emit()
+                if event is not None:
+                    yield event
+                continue
+            if line.startswith(":"):
+                continue
+            field, sep, value = line.partition(":")
+            if not sep:
+                continue
+            if value.startswith(" "):
+                value = value[1:]
+            if field == "event":
+                event_name = value
+            elif field == "data":
+                data_lines.append(value)
+
+        event = emit()
+        if event is not None:
+            yield event
+
+    @staticmethod
+    def _parse_sse_control_json(data: str) -> dict:
+        try:
+            payload = json.loads(data) if data else {}
+        except json.JSONDecodeError as exc:
+            raise BackendError(
+                "Resposta inesperada do backend. Tente novamente."
+            ) from exc
+        if not isinstance(payload, dict):
+            raise BackendError("Resposta inesperada do backend. Tente novamente.")
+        return payload
 
     def close(self) -> None:
         """Fecha o cliente HTTP."""

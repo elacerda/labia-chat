@@ -1,6 +1,8 @@
 """Cliente HTTP para o servidor vLLM OpenAI-compatible."""
 
 import asyncio
+import json
+from collections.abc import AsyncIterator
 from http import HTTPStatus
 
 import httpx
@@ -150,3 +152,92 @@ class VLLMClient:
             raise VLLMClientError("vLLM first choice message content is not a string")
 
         return content
+
+    async def generate_stream(
+        self,
+        messages: list[dict[str, str]],
+        temperature: float = 0.0,
+        max_tokens: int = 32,
+    ) -> AsyncIterator[str]:
+        """
+        Stream a response using the OpenAI-compatible vLLM chat completions API.
+
+        Yields choices[].delta.content strings, preserving whitespace-only chunks.
+        """
+        if not self._client:
+            raise RuntimeError("VLLMClient must be used as async context manager")
+
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+
+        try:
+            async with self._client.stream(
+                "POST",
+                "/v1/chat/completions",
+                json=payload,
+            ) as response:
+                if response.status_code != HTTPStatus.OK:
+                    raise VLLMClientError(
+                        f"vLLM streaming returned status {response.status_code}"
+                    )
+
+                async for line in response.aiter_lines():
+                    if not line or not line.startswith("data:"):
+                        continue
+
+                    data = line.removeprefix("data:").strip()
+                    if data == "[DONE]":
+                        break
+
+                    try:
+                        chunk = json.loads(data)
+                    except json.JSONDecodeError as exc:
+                        raise VLLMClientError(
+                            "Failed to parse vLLM streaming response as JSON"
+                        ) from exc
+
+                    for text in self._extract_stream_text_deltas(chunk):
+                        yield text
+        except asyncio.TimeoutError as exc:
+            raise VLLMClientError(
+                f"Streaming request to vLLM timed out after {self.timeout}s"
+            ) from exc
+        except httpx.RequestError as exc:
+            raise VLLMClientError("Failed to connect to vLLM stream") from exc
+
+    @staticmethod
+    def _extract_stream_text_deltas(chunk: dict) -> list[str]:
+        """Extract choices[].delta.content strings from a stream chunk."""
+        if "choices" not in chunk:
+            raise VLLMClientError("vLLM stream chunk missing 'choices' field")
+
+        choices = chunk["choices"]
+        if not isinstance(choices, list):
+            raise VLLMClientError("vLLM stream chunk 'choices' is not a list")
+
+        text_deltas: list[str] = []
+        for choice in choices:
+            if not isinstance(choice, dict):
+                raise VLLMClientError("vLLM stream choice is not a dictionary")
+
+            delta = choice.get("delta")
+            if delta is None:
+                continue
+            if not isinstance(delta, dict):
+                raise VLLMClientError("vLLM stream choice delta is not a dictionary")
+
+            content = delta.get("content")
+            if content is None or content == "":
+                continue
+            if not isinstance(content, str):
+                raise VLLMClientError(
+                    "vLLM stream choice delta content is not a string"
+                )
+            text_deltas.append(content)
+
+        return text_deltas
