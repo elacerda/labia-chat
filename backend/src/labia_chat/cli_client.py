@@ -73,6 +73,39 @@ class CLIClient:
         if self._client is not None:
             self._client.headers["Authorization"] = f"Bearer {token}"
 
+    def health_check(self) -> dict:
+        """
+        Verifica a saúde do backend via GET /health.
+
+        Returns
+        -------
+        dict
+            Dados retornados pelo endpoint de health.
+
+        Raises
+        ------
+        BackendError
+            Se o backend retornar erro ou payload inesperado.
+        ConnectionError
+            Se não conseguir conectar ao backend.
+        """
+        try:
+            client = self._get_client()
+            response = client.get("/health")
+            response.raise_for_status()
+            data = response.json()
+            if not isinstance(data, dict):
+                raise BackendError("Resposta inesperada do backend. Tente novamente.")
+            return data
+        except httpx.HTTPStatusError as exc:
+            raise BackendError(
+                f"Backend respondeu HTTP {exc.response.status_code} em /health."
+            ) from exc
+        except httpx.TimeoutException:
+            raise ConnectionError("Timeout ao conectar ao backend. Tente novamente.")
+        except httpx.NetworkError:
+            raise ConnectionError("Falha de conexão com o backend. Verifique sua rede.")
+
     def validate_token(self) -> dict:
         """
         Valida o token via GET /auth/me.
@@ -109,6 +142,57 @@ class CLIClient:
                     "Dados inválidos. Verifique a entrada e tente novamente."
                 )
             elif exc.response.status_code == 502:
+                raise BackendError("Backend não conseguiu obter resposta do modelo.")
+            raise
+        except httpx.TimeoutException:
+            raise ConnectionError("Timeout ao conectar ao backend. Tente novamente.")
+        except httpx.NetworkError:
+            raise ConnectionError("Falha de conexão com o backend. Verifique sua rede.")
+
+    def model_ping(self) -> dict:
+        """
+        Executa diagnóstico mínimo do modelo via POST /chat/model/ping.
+
+        Returns
+        -------
+        dict
+            Dados retornados pelo endpoint de ping do modelo.
+
+        Raises
+        ------
+        AuthError
+            Se o token for inválido (401).
+        PermissionError
+            Se o usuário não tiver permissão (403).
+        ValidationError
+            Se houver erro de validação (422).
+        BackendError
+            Se houver erro no backend ou payload inesperado.
+        ConnectionError
+            Se não conseguir conectar ao backend.
+        """
+        try:
+            client = self._get_client()
+            response = client.post("/chat/model/ping", json={"prompt": "ping"})
+            response.raise_for_status()
+            data = response.json()
+            if not isinstance(data, dict):
+                raise BackendError("Resposta inesperada do backend. Tente novamente.")
+            return data
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 401:
+                raise AuthError(
+                    "Token inválido ou expirado. Gere um novo token AI-Scope."
+                )
+            elif exc.response.status_code == 403:
+                raise PermissionError(
+                    "Usuário autenticado, mas sem permissão chat_vllm."
+                )
+            elif exc.response.status_code == 422:
+                raise ValidationError(
+                    "Dados inválidos. Verifique a entrada e tente novamente."
+                )
+            elif exc.response.status_code in (500, 502, 503):
                 raise BackendError("Backend não conseguiu obter resposta do modelo.")
             raise
         except httpx.TimeoutException:
