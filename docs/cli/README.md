@@ -50,6 +50,27 @@ labia-chat chat
 labia-chat chat send <conversation-id> "Hello"
 ```
 
+### Interactive chat
+
+Start a new terminal chat session:
+
+```bash
+labia-chat chat
+```
+
+Resume an existing conversation:
+
+```bash
+labia-chat chat --conversation-id <conversation-id>
+```
+
+Inside the chat:
+
+- `/help`: show internal chat commands.
+- `/history`: show recent messages for the current conversation.
+- `/new`: create a new conversation and switch to it.
+- `/exit` or `/quit`: leave the chat cleanly.
+
 Use `--no-stream` to call the non-streaming endpoint:
 
 ```bash

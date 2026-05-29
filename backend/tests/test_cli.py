@@ -224,6 +224,7 @@ class TestChatCommand:
             title=None,
             conversation_id=None,
             show_last=10,
+            stream=False,
         )
 
         with patch("labia_chat.cli.resolve_api_url") as mock_resolve_api:
@@ -271,6 +272,7 @@ class TestChatCommand:
             title=None,
             conversation_id=None,
             show_last=10,
+            stream=False,
         )
 
         with patch("labia_chat.cli.resolve_api_url") as mock_resolve_api:
@@ -291,6 +293,196 @@ class TestChatCommand:
 
                     assert result == 1
                     mock_client.close.assert_called_once()
+
+    def test_chat_creates_conversation_and_prints_banner(self, capsys) -> None:
+        """Testa criação automática e banner inicial."""
+        args = argparse.Namespace(
+            api_url=None,
+            token=None,
+            title=None,
+            conversation_id=None,
+            show_last=10,
+            stream=True,
+        )
+
+        with patch("labia_chat.cli.resolve_api_url", return_value="http://example.com"):
+            with patch("labia_chat.cli.resolve_token", return_value="test-token"):
+                with patch("labia_chat.cli.CLIClient") as MockClient:
+                    mock_client = MagicMock()
+                    MockClient.return_value = mock_client
+                    mock_client.validate_token.return_value = {
+                        "username": "testuser",
+                    }
+                    mock_client.create_conversation.return_value = {
+                        "id": "conv-123",
+                        "title": "CLI chat",
+                    }
+
+                    with patch("labia_chat.cli.input", side_effect=["/exit"]):
+                        result = chat_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        mock_client.create_conversation.assert_called_once_with(title="CLI chat")
+        assert "API URL: http://example.com" in output
+        assert "User: testuser" in output
+        assert "Conversation ID: conv-123" in output
+        assert "Streaming: enabled" in output
+        assert "Use /help for commands and /exit to leave." in output
+
+    def test_help_command_prints_internal_commands(self, capsys) -> None:
+        """Testa que /help lista comandos internos."""
+        args = argparse.Namespace(
+            api_url=None,
+            token=None,
+            title=None,
+            conversation_id=None,
+            show_last=10,
+            stream=False,
+        )
+
+        with patch("labia_chat.cli.resolve_api_url", return_value="http://example.com"):
+            with patch("labia_chat.cli.resolve_token", return_value="test-token"):
+                with patch("labia_chat.cli.CLIClient") as MockClient:
+                    mock_client = MagicMock()
+                    MockClient.return_value = mock_client
+                    mock_client.validate_token.return_value = {"username": "testuser"}
+                    mock_client.create_conversation.return_value = {"id": "conv-123"}
+
+                    with patch("labia_chat.cli.input", side_effect=["/help", "/exit"]):
+                        result = chat_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        assert "/help" in output
+        assert "/history" in output
+        assert "/new" in output
+        assert "/exit" in output
+        assert "/quit" in output
+
+    def test_quit_exits_cleanly(self, capsys) -> None:
+        """Testa que /quit encerra sem erro."""
+        args = argparse.Namespace(
+            api_url=None,
+            token=None,
+            title=None,
+            conversation_id=None,
+            show_last=10,
+            stream=False,
+        )
+
+        with patch("labia_chat.cli.resolve_api_url", return_value="http://example.com"):
+            with patch("labia_chat.cli.resolve_token", return_value="test-token"):
+                with patch("labia_chat.cli.CLIClient") as MockClient:
+                    mock_client = MagicMock()
+                    MockClient.return_value = mock_client
+                    mock_client.validate_token.return_value = {"username": "testuser"}
+                    mock_client.create_conversation.return_value = {"id": "conv-123"}
+
+                    with patch("labia_chat.cli.input", side_effect=["/quit"]):
+                        result = chat_command(args)
+
+        assert result == 0
+        assert "Até mais." in capsys.readouterr().out
+        mock_client.generate_message.assert_not_called()
+
+    def test_new_command_switches_conversation(self, capsys) -> None:
+        """Testa que /new cria e troca a conversa atual."""
+        args = argparse.Namespace(
+            api_url=None,
+            token=None,
+            title=None,
+            conversation_id=None,
+            show_last=10,
+            stream=False,
+        )
+
+        with patch("labia_chat.cli.resolve_api_url", return_value="http://example.com"):
+            with patch("labia_chat.cli.resolve_token", return_value="test-token"):
+                with patch("labia_chat.cli.CLIClient") as MockClient:
+                    mock_client = MagicMock()
+                    MockClient.return_value = mock_client
+                    mock_client.validate_token.return_value = {"username": "testuser"}
+                    mock_client.create_conversation.side_effect = [
+                        {"id": "conv-1"},
+                        {"id": "conv-2"},
+                    ]
+                    mock_client.generate_message.return_value = {"content": "Olá"}
+
+                    with patch(
+                        "labia_chat.cli.input",
+                        side_effect=["/new", "Hello", "/exit"],
+                    ):
+                        result = chat_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        assert mock_client.create_conversation.call_count == 2
+        mock_client.generate_message.assert_called_once_with("Hello")
+        assert mock_client.conversation_id == "conv-2"
+        assert "Nova conversa: conv-2" in output
+
+    def test_exit_after_new_exits_cleanly(self, capsys) -> None:
+        """Testa que /exit após /new encerra sem enviar ao modelo."""
+        args = argparse.Namespace(
+            api_url=None,
+            token=None,
+            title=None,
+            conversation_id=None,
+            show_last=10,
+            stream=False,
+        )
+
+        with patch("labia_chat.cli.resolve_api_url", return_value="http://example.com"):
+            with patch("labia_chat.cli.resolve_token", return_value="test-token"):
+                with patch("labia_chat.cli.CLIClient") as MockClient:
+                    mock_client = MagicMock()
+                    MockClient.return_value = mock_client
+                    mock_client.validate_token.return_value = {"username": "testuser"}
+                    mock_client.create_conversation.side_effect = [
+                        {"id": "conv-1"},
+                        {"id": "conv-2"},
+                    ]
+                    mock_client.generate_message.return_value = {"content": "Olá"}
+
+                    with patch(
+                        "labia_chat.cli.input",
+                        side_effect=["/new", "/exit"],
+                    ):
+                        result = chat_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        assert mock_client.create_conversation.call_count == 2
+        # generate_message should NOT be called since /exit was used
+        mock_client.generate_message.assert_not_called()
+        assert "Nova conversa: conv-2" in output
+        assert "Até mais." in output
+
+    def test_eof_exits_cleanly(self, capsys) -> None:
+        """Testa que EOF encerra o chat sem traceback."""
+        args = argparse.Namespace(
+            api_url=None,
+            token=None,
+            title=None,
+            conversation_id=None,
+            show_last=10,
+            stream=False,
+        )
+
+        with patch("labia_chat.cli.resolve_api_url", return_value="http://example.com"):
+            with patch("labia_chat.cli.resolve_token", return_value="test-token"):
+                with patch("labia_chat.cli.CLIClient") as MockClient:
+                    mock_client = MagicMock()
+                    MockClient.return_value = mock_client
+                    mock_client.validate_token.return_value = {"username": "testuser"}
+                    mock_client.create_conversation.return_value = {"id": "conv-123"}
+
+                    with patch("labia_chat.cli.input", side_effect=EOFError):
+                        result = chat_command(args)
+
+        assert result == 0
+        assert "Até mais." in capsys.readouterr().out
 
 
 class TestMain:
@@ -427,6 +619,7 @@ class TestChatCommandConversationId:
             title=None,
             conversation_id="123e4567-e89b-12d3-a456-426614174000",
             show_last=10,
+            stream=False,
         )
 
         with patch("labia_chat.cli.resolve_api_url") as mock_resolve_api:
@@ -507,6 +700,7 @@ class TestChatCommandConversationId:
             title=None,
             conversation_id="123e4567-e89b-12d3-a456-426614174000",
             show_last=2,
+            stream=False,
         )
 
         with patch("labia_chat.cli.resolve_api_url") as mock_resolve_api:
@@ -567,6 +761,7 @@ class TestChatCommandConversationId:
             title=None,
             conversation_id="123e4567-e89b-12d3-a456-426614174000",
             show_last=0,
+            stream=False,
         )
 
         with patch("labia_chat.cli.resolve_api_url") as mock_resolve_api:
@@ -614,6 +809,7 @@ class TestChatCommandConversationId:
             title=None,
             conversation_id="123e4567-e89b-12d3-a456-426614174000",
             show_last=10,
+            stream=False,
         )
 
         with patch("labia_chat.cli.resolve_api_url") as mock_resolve_api:
@@ -651,6 +847,7 @@ class TestHistoryCommand:
             title=None,
             conversation_id="123e4567-e89b-12d3-a456-426614174000",
             show_last=10,
+            stream=False,
         )
 
         with patch("labia_chat.cli.resolve_api_url") as mock_resolve_api:
@@ -722,6 +919,7 @@ class TestHistoryCommand:
             title=None,
             conversation_id="123e4567-e89b-12d3-a456-426614174000",
             show_last=10,
+            stream=False,
         )
 
         with patch("labia_chat.cli.resolve_api_url") as mock_resolve_api:
@@ -772,6 +970,7 @@ class TestHistoryCommand:
             title=None,
             conversation_id=None,
             show_last=10,
+            stream=False,
         )
 
         with patch("labia_chat.cli.resolve_api_url") as mock_resolve_api:
@@ -813,6 +1012,7 @@ class TestHistoryCommand:
             title=None,
             conversation_id=None,
             show_last=10,
+            stream=False,
         )
 
         with patch("labia_chat.cli.resolve_api_url") as mock_resolve_api:
@@ -1690,6 +1890,7 @@ class TestTimeoutAndNetworkErrorHandling:
             title=None,
             conversation_id=None,
             show_last=10,
+            stream=False,
         )
 
         with patch("labia_chat.cli.resolve_api_url") as mock_resolve_api:

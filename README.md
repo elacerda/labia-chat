@@ -64,7 +64,8 @@ Veja:
 - [docs/cli-chat.md](docs/cli-chat.md)
 - [docs/cli/README.md](docs/cli/README.md)
 
-O CLI usa streaming por padrão em `labia-chat chat send <conversation-id> "mensagem"` e `labia-chat chat`.
+O CLI usa streaming por padrão em `labia-chat chat` e
+`labia-chat chat send <conversation-id> "mensagem"`.
 Use `--no-stream` nesses comandos para forçar o endpoint não-streaming `/generate`.
 
 Quickstart:
@@ -80,7 +81,7 @@ echo
 labia-chat config show
 labia-chat doctor
 labia-chat conversations list
-labia-chat chat send <conversation-id> "Olá"
+labia-chat chat
 ```
 
 Use `labia-chat chat send <conversation-id> "Olá" --no-stream` ou
