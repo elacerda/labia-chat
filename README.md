@@ -62,9 +62,29 @@ Veja:
 Veja:
 
 - [docs/cli-chat.md](docs/cli-chat.md)
+- [docs/cli/README.md](docs/cli/README.md)
 
 O CLI usa streaming por padrão em `labia-chat chat send <conversation-id> "mensagem"` e `labia-chat chat`.
 Use `--no-stream` nesses comandos para forçar o endpoint não-streaming `/generate`.
+
+Quickstart:
+
+```bash
+cd backend
+python -m pip install -e ".[dev]"
+export LABIA_CHAT_API_URL=http://127.0.0.1:8010
+read -rsp "AI-Scope token: " LABIA_CHAT_TOKEN
+export LABIA_CHAT_TOKEN
+echo
+
+labia-chat config show
+labia-chat doctor
+labia-chat conversations list
+labia-chat chat send <conversation-id> "Olá"
+```
+
+Use `labia-chat chat send <conversation-id> "Olá" --no-stream` ou
+`labia-chat chat --no-stream` quando precisar chamar o endpoint não-streaming.
 
 ### Streaming SSE
 

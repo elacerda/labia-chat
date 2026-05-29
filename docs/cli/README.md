@@ -17,6 +17,7 @@ echo
 Check the resolved configuration without printing secrets:
 
 ```bash
+labia-chat --version
 labia-chat config show
 ```
 
