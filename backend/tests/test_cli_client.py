@@ -42,6 +42,49 @@ class TestCLIClientSetToken:
         assert client.token == "test-token-123"
 
 
+class TestCLIClientHealthCheck:
+    """Testes do health check do CLIClient."""
+
+    def test_health_check_success(self) -> None:
+        """Testa health check bem-sucedido."""
+        client = CLIClient("http://example.com")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.json.return_value = {"status": "ok", "service": "labia-chat"}
+            mock_client.get.return_value = response
+            mock_get_client.return_value = mock_client
+
+            result = client.health_check()
+
+        assert result["status"] == "ok"
+        mock_client.get.assert_called_once_with("/health")
+
+
+class TestCLIClientModelPing:
+    """Testes do ping do modelo do CLIClient."""
+
+    def test_model_ping_success(self) -> None:
+        """Testa ping de modelo bem-sucedido."""
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.json.return_value = {"response": "pong"}
+            mock_client.post.return_value = response
+            mock_get_client.return_value = mock_client
+
+            result = client.model_ping()
+
+        assert result["response"] == "pong"
+        mock_client.post.assert_called_once_with(
+            "/chat/model/ping", json={"prompt": "ping"}
+        )
+
+
 class TestCLIClientValidateToken:
     """Testes de validação de token."""
 

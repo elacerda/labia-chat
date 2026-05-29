@@ -10,9 +10,14 @@ from labia_chat.cli_client import (
     CLIClient,
     ConnectionError,
     NotFoundError,
-    PermissionError,
     ValidationError,
 )
+from labia_chat.cli_client import (
+    PermissionError as CLIPermissionError,
+)
+
+DEFAULT_API_URL = "http://127.0.0.1:8010"
+DOCTOR_HINT = "Sugestão: execute `labia-chat doctor` para diagnosticar o ambiente."
 
 
 def resolve_api_url(args_api_url: str | None) -> str:
@@ -30,7 +35,25 @@ def resolve_api_url(args_api_url: str | None) -> str:
     env_url = os.environ.get("LABIA_CHAT_API_URL")
     if env_url:
         return env_url
-    return "http://127.0.0.1:8010"
+    return DEFAULT_API_URL
+
+
+def resolve_api_url_with_source(args_api_url: str | None) -> tuple[str, str]:
+    """
+    Resolve a URL da API com a origem detectável.
+
+    Args:
+        args_api_url: Valor passado via --api-url.
+
+    Returns:
+        Tupla com URL resolvida e origem: argument, env ou default.
+    """
+    if args_api_url:
+        return args_api_url, "argument"
+    env_url = os.environ.get("LABIA_CHAT_API_URL")
+    if env_url:
+        return env_url, "env"
+    return DEFAULT_API_URL, "default"
 
 
 def resolve_token(args_token: str | None) -> str:
@@ -49,6 +72,52 @@ def resolve_token(args_token: str | None) -> str:
     if env_token:
         return env_token
     return getpass.getpass("AI-Scope token: ")
+
+
+def resolve_token_optional_with_source(
+    args_token: str | None,
+) -> tuple[str | None, str]:
+    """
+    Resolve o token sem prompt interativo e com origem detectável.
+
+    Args:
+        args_token: Valor passado via --token.
+
+    Returns:
+        Tupla com token opcional e origem: argument, env ou missing.
+    """
+    if args_token:
+        return args_token, "argument"
+    env_token = os.environ.get("LABIA_CHAT_TOKEN")
+    if env_token:
+        return env_token, "env"
+    return None, "missing"
+
+
+def print_cli_error(error: Exception) -> None:
+    """
+    Imprime erro com orientação de diagnóstico.
+
+    Args:
+        error: Exceção tratada pelo CLI.
+    """
+    print(f"Erro: {error}")
+    print(DOCTOR_HINT)
+
+
+def print_diagnostic(status: str, label: str, detail: str = "") -> None:
+    """
+    Imprime uma linha estável de diagnóstico.
+
+    Args:
+        status: Status curto, como ok, fail ou skip.
+        label: Nome da checagem.
+        detail: Detalhe opcional.
+    """
+    line = f"[{status}] {label}"
+    if detail:
+        line = f"{line}: {detail}"
+    print(line)
 
 
 def print_help() -> None:
@@ -134,6 +203,106 @@ def print_assistant_response(response: dict) -> None:
     """
     content = response.get("content", "")
     print(content)
+
+
+def config_show_command(args: argparse.Namespace) -> int:
+    """
+    Exibe a configuração resolvida do CLI.
+
+    Args:
+        args: Argumentos da linha de comando.
+
+    Returns:
+        Código de saída.
+    """
+    api_url, api_source = resolve_api_url_with_source(args.api_url)
+    token, token_source = resolve_token_optional_with_source(args.token)
+    token_status = "configured" if token else "missing"
+
+    print("CLI configuration")
+    print(f"API URL: {api_url}")
+    print(f"API URL source: {api_source}")
+    print(f"Token status: {token_status}")
+    print(f"Token source: {token_source}")
+    print("Streaming default: enabled")
+    return 0
+
+
+def doctor_command(args: argparse.Namespace) -> int:
+    """
+    Executa diagnósticos amigáveis do CLI e backend.
+
+    Args:
+        args: Argumentos da linha de comando.
+
+    Returns:
+        Código de saída.
+    """
+    api_url, api_source = resolve_api_url_with_source(args.api_url)
+    token, token_source = resolve_token_optional_with_source(args.token)
+    has_failure = False
+
+    print("labia-chat doctor")
+    print(f"API URL: {api_url} (source: {api_source})")
+
+    if token:
+        print(f"Token: configured (source: {token_source})")
+    else:
+        print("Token: missing")
+
+    client = CLIClient(api_url)
+
+    try:
+        try:
+            health = client.health_check()
+            status = health.get("status", "unknown")
+            if status == "ok":
+                print_diagnostic("ok", "GET /health", "backend is healthy")
+            else:
+                print_diagnostic("fail", "GET /health", f"unexpected status {status}")
+                has_failure = True
+        except (BackendError, ConnectionError) as e:
+            print_diagnostic("fail", "GET /health", str(e))
+            has_failure = True
+
+        if token:
+            client.set_token(token)
+            try:
+                user_data = client.validate_token()
+                username = user_data.get("username", "authenticated user")
+                print_diagnostic("ok", "GET /auth/me", str(username))
+            except (
+                AuthError,
+                CLIPermissionError,
+                ValidationError,
+                BackendError,
+                ConnectionError,
+            ) as e:
+                print_diagnostic("fail", "GET /auth/me", str(e))
+                has_failure = True
+        else:
+            print_diagnostic("skip", "GET /auth/me", "token missing")
+
+        if getattr(args, "with_model", False):
+            if not token:
+                print_diagnostic("skip", "POST /chat/model/ping", "token missing")
+            else:
+                try:
+                    client.model_ping()
+                    print_diagnostic("ok", "POST /chat/model/ping", "model responded")
+                except (
+                    AuthError,
+                    CLIPermissionError,
+                    ValidationError,
+                    BackendError,
+                    ConnectionError,
+                ) as e:
+                    print_diagnostic("fail", "POST /chat/model/ping", str(e))
+                    has_failure = True
+    finally:
+        client.close()
+
+    return 1 if has_failure else 0
 
 
 def print_stream_chunks(chunks) -> None:
@@ -242,19 +411,19 @@ def auth_me_command(args: argparse.Namespace) -> int:
         print_user_summary(user_data)
         return 0
     except AuthError as e:
-        print(f"Erro: {e}")
+        print_cli_error(e)
         return 1
-    except PermissionError as e:
-        print(f"Erro: {e}")
+    except CLIPermissionError as e:
+        print_cli_error(e)
         return 1
     except ValidationError as e:
-        print(f"Erro: {e}")
+        print_cli_error(e)
         return 1
     except BackendError as e:
-        print(f"Erro: {e}")
+        print_cli_error(e)
         return 1
     except ConnectionError as e:
-        print(f"Erro: {e}")
+        print_cli_error(e)
         return 1
     finally:
         client.close()
@@ -282,19 +451,19 @@ def conversations_create_command(args: argparse.Namespace) -> int:
         print_conversation_summary(conversation)
         return 0
     except AuthError as e:
-        print(f"Erro: {e}")
+        print_cli_error(e)
         return 1
-    except PermissionError as e:
-        print(f"Erro: {e}")
+    except CLIPermissionError as e:
+        print_cli_error(e)
         return 1
     except ValidationError as e:
-        print(f"Erro: {e}")
+        print_cli_error(e)
         return 1
     except BackendError as e:
-        print(f"Erro: {e}")
+        print_cli_error(e)
         return 1
     except ConnectionError as e:
-        print(f"Erro: {e}")
+        print_cli_error(e)
         return 1
     finally:
         client.close()
@@ -321,19 +490,19 @@ def conversations_list_command(args: argparse.Namespace) -> int:
         print_conversations_list(conversations)
         return 0
     except AuthError as e:
-        print(f"Erro: {e}")
+        print_cli_error(e)
         return 1
-    except PermissionError as e:
-        print(f"Erro: {e}")
+    except CLIPermissionError as e:
+        print_cli_error(e)
         return 1
     except ValidationError as e:
-        print(f"Erro: {e}")
+        print_cli_error(e)
         return 1
     except BackendError as e:
-        print(f"Erro: {e}")
+        print_cli_error(e)
         return 1
     except ConnectionError as e:
-        print(f"Erro: {e}")
+        print_cli_error(e)
         return 1
     finally:
         client.close()
@@ -362,22 +531,22 @@ def messages_list_command(args: argparse.Namespace) -> int:
         print_messages_list(messages)
         return 0
     except AuthError as e:
-        print(f"Erro: {e}")
+        print_cli_error(e)
         return 1
-    except PermissionError as e:
-        print(f"Erro: {e}")
+    except CLIPermissionError as e:
+        print_cli_error(e)
         return 1
     except NotFoundError as e:
-        print(f"Erro: {e}")
+        print_cli_error(e)
         return 1
     except ValidationError as e:
-        print(f"Erro: {e}")
+        print_cli_error(e)
         return 1
     except BackendError as e:
-        print(f"Erro: {e}")
+        print_cli_error(e)
         return 1
     except ConnectionError as e:
-        print(f"Erro: {e}")
+        print_cli_error(e)
         return 1
     finally:
         client.close()
@@ -406,19 +575,19 @@ def chat_send_command(args: argparse.Namespace) -> int:
         try:
             client.validate_token()
         except AuthError as e:
-            print(f"Erro: {e}")
+            print_cli_error(e)
             return 1
-        except PermissionError as e:
-            print(f"Erro: {e}")
+        except CLIPermissionError as e:
+            print_cli_error(e)
             return 1
         except ValidationError as e:
-            print(f"Erro: {e}")
+            print_cli_error(e)
             return 1
         except BackendError as e:
-            print(f"Erro: {e}")
+            print_cli_error(e)
             return 1
         except ConnectionError as e:
-            print(f"Erro: {e}")
+            print_cli_error(e)
             return 1
 
         # Envia a mensagem
@@ -430,22 +599,22 @@ def chat_send_command(args: argparse.Namespace) -> int:
                 print_assistant_response(response)
             return 0
         except AuthError as e:
-            print(f"Erro: {e}")
+            print_cli_error(e)
             return 1
-        except PermissionError as e:
-            print(f"Erro: {e}")
+        except CLIPermissionError as e:
+            print_cli_error(e)
             return 1
         except NotFoundError as e:
-            print(f"Erro: {e}")
+            print_cli_error(e)
             return 1
         except ValidationError as e:
-            print(f"Erro: {e}")
+            print_cli_error(e)
             return 1
         except BackendError as e:
-            print(f"Erro: {e}")
+            print_cli_error(e)
             return 1
         except ConnectionError as e:
-            print(f"Erro: {e}")
+            print_cli_error(e)
             return 1
 
     finally:
@@ -477,19 +646,19 @@ def chat_command(args: argparse.Namespace) -> int:
             username = user_data.get("username", "usuário")
             print(f"Autenticado como: {username}\n")
         except AuthError as e:
-            print(f"Erro: {e}")
+            print_cli_error(e)
             return 1
-        except PermissionError as e:
-            print(f"Erro: {e}")
+        except CLIPermissionError as e:
+            print_cli_error(e)
             return 1
         except ValidationError as e:
-            print(f"Erro: {e}")
+            print_cli_error(e)
             return 1
         except BackendError as e:
-            print(f"Erro: {e}")
+            print_cli_error(e)
             return 1
         except ConnectionError as e:
-            print(f"Erro: {e}")
+            print_cli_error(e)
             return 1
 
         # Verifica se deve resumir uma conversa existente
@@ -509,22 +678,22 @@ def chat_command(args: argparse.Namespace) -> int:
                     print(f"Título: {conv_title}")
                 print()
             except AuthError as e:
-                print(f"Erro: {e}")
+                print_cli_error(e)
                 return 1
-            except PermissionError as e:
-                print(f"Erro: {e}")
+            except CLIPermissionError as e:
+                print_cli_error(e)
                 return 1
             except NotFoundError as e:
-                print(f"Erro: {e}")
+                print_cli_error(e)
                 return 1
             except ValidationError as e:
-                print(f"Erro: {e}")
+                print_cli_error(e)
                 return 1
             except BackendError as e:
-                print(f"Erro: {e}")
+                print_cli_error(e)
                 return 1
             except ConnectionError as e:
-                print(f"Erro: {e}")
+                print_cli_error(e)
                 return 1
 
             # Se show_last > 0, exibe as últimas mensagens
@@ -535,7 +704,7 @@ def chat_command(args: argparse.Namespace) -> int:
                     print_messages(messages, show_last)
                 except AuthError as e:
                     print(f"Erro ao carregar histórico: {e}")
-                except PermissionError as e:
+                except CLIPermissionError as e:
                     print(f"Erro ao carregar histórico: {e}")
                 except NotFoundError as e:
                     print(f"Erro ao carregar histórico: {e}")
@@ -557,19 +726,19 @@ def chat_command(args: argparse.Namespace) -> int:
                 print(f"Nova conversa criada: {conv_id}")
                 print("Digite /help para ver os comandos disponíveis.\n")
             except AuthError as e:
-                print(f"Erro: {e}")
+                print_cli_error(e)
                 return 1
-            except PermissionError as e:
-                print(f"Erro: {e}")
+            except CLIPermissionError as e:
+                print_cli_error(e)
                 return 1
             except ValidationError as e:
-                print(f"Erro: {e}")
+                print_cli_error(e)
                 return 1
             except BackendError as e:
-                print(f"Erro: {e}")
+                print_cli_error(e)
                 return 1
             except ConnectionError as e:
-                print(f"Erro: {e}")
+                print_cli_error(e)
                 return 1
 
         # Loop interativo
@@ -601,7 +770,7 @@ def chat_command(args: argparse.Namespace) -> int:
                     print_messages(messages, show_last)
                 except AuthError as e:
                     print(f"Erro ao carregar histórico: {e}\n")
-                except PermissionError as e:
+                except CLIPermissionError as e:
                     print(f"Erro ao carregar histórico: {e}\n")
                 except NotFoundError as e:
                     print(f"Erro ao carregar histórico: {e}\n")
@@ -631,7 +800,7 @@ def chat_command(args: argparse.Namespace) -> int:
             except AuthError as e:
                 print(f"Erro: {e}\n")
                 break
-            except PermissionError as e:
+            except CLIPermissionError as e:
                 print(f"Erro: {e}\n")
                 break
             except NotFoundError as e:
@@ -666,6 +835,50 @@ def main() -> int:
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Comandos disponíveis")
+
+    # Comando config
+    config_parser = subparsers.add_parser(
+        "config",
+        help="Mostra configuração resolvida",
+    )
+    config_subparsers = config_parser.add_subparsers(
+        dest="config_command", help="Comandos disponíveis"
+    )
+    config_show_parser = config_subparsers.add_parser(
+        "show",
+        help="Exibe configuração resolvida do CLI",
+    )
+    config_show_parser.add_argument(
+        "--api-url",
+        type=str,
+        help="URL do backend (padrão: http://127.0.0.1:8010 ou LABIA_CHAT_API_URL)",
+    )
+    config_show_parser.add_argument(
+        "--token",
+        type=str,
+        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN)",
+    )
+
+    # Comando doctor
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help="Executa diagnósticos do CLI e backend",
+    )
+    doctor_parser.add_argument(
+        "--api-url",
+        type=str,
+        help="URL do backend (padrão: http://127.0.0.1:8010 ou LABIA_CHAT_API_URL)",
+    )
+    doctor_parser.add_argument(
+        "--token",
+        type=str,
+        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN)",
+    )
+    doctor_parser.add_argument(
+        "--with-model",
+        action="store_true",
+        help="Também executa POST /chat/model/ping",
+    )
 
     # Comando auth
     auth_parser = subparsers.add_parser(
@@ -888,6 +1101,16 @@ def main() -> int:
     if args.command is None:
         parser.print_help()
         return 0
+
+    if args.command == "config":
+        if args.config_command == "show":
+            return config_show_command(args)
+        else:
+            config_parser.print_help()
+            return 0
+
+    if args.command == "doctor":
+        return doctor_command(args)
 
     if args.command == "auth":
         if args.auth_command == "me":

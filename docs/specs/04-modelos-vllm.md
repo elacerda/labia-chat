@@ -26,7 +26,7 @@ vLLM /chat/completions
 DEFAULT_MODEL_ID=qwen-coder-next
 
 VLLM_BASE_URL=http://localhost:8000/v1
-VLLM_API_KEY=labia-local-key
+VLLM_API_KEY=<VLLM_API_KEY>
 VLLM_MODEL_NAME=qwen-coder-next
 VLLM_CONTEXT_WINDOW=65536
 VLLM_DEFAULT_MAX_TOKENS=2048

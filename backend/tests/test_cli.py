@@ -9,8 +9,10 @@ from labia_chat.cli import (
     auth_me_command,
     chat_command,
     chat_send_command,
+    config_show_command,
     conversations_create_command,
     conversations_list_command,
+    doctor_command,
     main,
     messages_list_command,
     resolve_api_url,
@@ -79,6 +81,132 @@ class TestResolveToken:
                 result = resolve_token(None)
                 assert result == "prompt-token"
                 mock_getpass.assert_called_once_with("AI-Scope token: ")
+
+
+class TestConfigShowCommand:
+    """Testes do comando 'config show'."""
+
+    def test_config_show_does_not_leak_token_value(self, capsys) -> None:
+        """Testa que o valor do token nunca é impresso."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="super-secret-token",
+        )
+
+        result = config_show_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        assert "super-secret-token" not in output
+        assert "Token status: configured" in output
+        assert "Token source: argument" in output
+
+    def test_config_show_reports_missing_token(self, capsys) -> None:
+        """Testa que token ausente é reportado sem prompt."""
+        args = argparse.Namespace(api_url=None, token=None)
+
+        with patch.dict("os.environ", {}, clear=True):
+            result = config_show_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        assert "API URL: http://127.0.0.1:8010" in output
+        assert "API URL source: default" in output
+        assert "Token status: missing" in output
+        assert "Token source: missing" in output
+        assert "Streaming default: enabled" in output
+
+    def test_config_show_reports_env_token_configured(self, capsys) -> None:
+        """Testa que token de env é reportado como configurado."""
+        args = argparse.Namespace(api_url=None, token=None)
+
+        with patch.dict("os.environ", {"LABIA_CHAT_TOKEN": "env-secret"}, clear=True):
+            result = config_show_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        assert "env-secret" not in output
+        assert "Token status: configured" in output
+        assert "Token source: env" in output
+
+
+class TestDoctorCommand:
+    """Testes do comando 'doctor'."""
+
+    def test_doctor_backend_healthy_and_auth_ok(self, capsys) -> None:
+        """Testa diagnóstico com backend saudável e auth ok."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="test-token",
+            with_model=False,
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+            mock_client.health_check.return_value = {"status": "ok"}
+            mock_client.validate_token.return_value = {"username": "testuser"}
+
+            result = doctor_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        assert "test-token" not in output
+        assert "Token: configured (source: argument)" in output
+        assert "[ok] GET /health: backend is healthy" in output
+        assert "[ok] GET /auth/me: testuser" in output
+        mock_client.set_token.assert_called_once_with("test-token")
+        mock_client.close.assert_called_once()
+
+    def test_doctor_handles_missing_token(self, capsys) -> None:
+        """Testa diagnóstico sem token configurado."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token=None,
+            with_model=False,
+        )
+
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("labia_chat.cli.CLIClient") as MockClient:
+                mock_client = MagicMock()
+                MockClient.return_value = mock_client
+                mock_client.health_check.return_value = {"status": "ok"}
+
+                result = doctor_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        assert "Token: missing" in output
+        assert "[skip] GET /auth/me: token missing" in output
+        mock_client.set_token.assert_not_called()
+        mock_client.validate_token.assert_not_called()
+        mock_client.close.assert_called_once()
+
+    def test_doctor_handles_backend_connection_failure(self, capsys) -> None:
+        """Testa diagnóstico quando o backend está indisponível."""
+        from labia_chat.cli_client import ConnectionError
+
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token=None,
+            with_model=False,
+        )
+
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("labia_chat.cli.CLIClient") as MockClient:
+                mock_client = MagicMock()
+                MockClient.return_value = mock_client
+                mock_client.health_check.side_effect = ConnectionError(
+                    "Falha de conexão com o backend."
+                )
+
+                result = doctor_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 1
+        assert "[fail] GET /health: Falha de conexão com o backend." in output
+        assert "[skip] GET /auth/me: token missing" in output
+        mock_client.close.assert_called_once()
 
 
 class TestChatCommand:
@@ -197,6 +325,44 @@ class TestMain:
 
                 assert result == 0
                 mock_help.assert_called_once()
+
+    def test_main_with_config_show_command(self) -> None:
+        """Testa main com comando config show."""
+        with patch("labia_chat.cli.config_show_command") as mock_config_show:
+            mock_config_show.return_value = 0
+
+            with patch("argparse.ArgumentParser.parse_args") as mock_parse:
+                args = argparse.Namespace(
+                    command="config",
+                    config_command="show",
+                    api_url=None,
+                    token=None,
+                )
+                mock_parse.return_value = args
+
+                result = main()
+
+                assert result == 0
+                mock_config_show.assert_called_once_with(args)
+
+    def test_main_with_doctor_command(self) -> None:
+        """Testa main com comando doctor."""
+        with patch("labia_chat.cli.doctor_command") as mock_doctor:
+            mock_doctor.return_value = 0
+
+            with patch("argparse.ArgumentParser.parse_args") as mock_parse:
+                args = argparse.Namespace(
+                    command="doctor",
+                    api_url=None,
+                    token=None,
+                    with_model=False,
+                )
+                mock_parse.return_value = args
+
+                result = main()
+
+                assert result == 0
+                mock_doctor.assert_called_once_with(args)
 
     def test_main_sys_exit(self) -> None:
         """Testa que main retorna código de saída correto."""
