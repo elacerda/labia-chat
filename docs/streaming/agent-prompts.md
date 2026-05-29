@@ -36,7 +36,7 @@ Streaming protocol:
 - Normal assistant chunks must be plain SSE data messages, not JSON:
   data: text chunk
 - Do NOT stream repeated objects like:
-  data: {"token": "..."}
+  data: ...
 - Use structured named events only for control:
   event: done
   data: {"message_id":"..."}

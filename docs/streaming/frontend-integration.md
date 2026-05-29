@@ -32,7 +32,7 @@ data: , Eduardo
 Eles não são JSON:
 
 ```text
-data: {"token":"Olá"}
+data: Olá
 ```
 
 Quebras de linha e Markdown chegam como múltiplas linhas `data:` no mesmo evento SSE e devem ser preservados.

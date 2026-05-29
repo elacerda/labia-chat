@@ -58,7 +58,7 @@ data: pedaço da resposta
 Não usar:
 
 ```text
-data: {"token":"..."}
+data: ...
 ```
 
 Controle:
@@ -115,7 +115,7 @@ Chunks normais são texto puro:
 data: pedaço da resposta
 
 Não será:
-data: {"token":"..."}
+data: ...
 
 Eventos de controle:
 event: done

@@ -42,7 +42,7 @@ data: pedaço da resposta
 Não usar JSON repetitivo em chunks normais:
 
 ```text
-data: {"token": "..."}
+data: ...
 ```
 
 Eventos de controle continuam estruturados:

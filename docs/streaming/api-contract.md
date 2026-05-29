@@ -68,7 +68,7 @@ Chunks normais devem conter apenas texto da resposta do assistant, em eventos SS
 Não usar:
 
 ```text
-data: {"token": "texto"}
+data: texto
 ```
 
 Usar:

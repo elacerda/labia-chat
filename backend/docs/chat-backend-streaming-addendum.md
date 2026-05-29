@@ -57,7 +57,7 @@ data: , Eduardo.
 Não são objetos JSON de token:
 
 ```text
-data: {"token":"Olá"}
+data: Olá
 ```
 
 Quebras de linha, linhas em branco, indentação e Markdown são preservados por múltiplas linhas `data:` dentro do mesmo evento SSE:
