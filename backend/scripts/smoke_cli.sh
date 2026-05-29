@@ -168,13 +168,14 @@ if [[ "$WITH_MODEL" == "true" ]]; then
     
     # Step 6: Send message (requires vLLM)
     echo "--- Step 6: Send Message (requires vLLM) ---"
-    SEND_OUTPUT=$(labia-chat chat send "$CONVERSATION_ID" "Responda apenas com: SMOKE_OK" 2>&1) || true
+    set +e
+    SEND_OUTPUT=$(labia-chat chat send "$CONVERSATION_ID" "Responda apenas com: SMOKE_OK" 2>&1)
     SEND_EXIT_CODE=$?
-    # PASS if command exits with status 0 AND output is non-empty
-    # Do not validate semantic content of the model response
-    if [[ $SEND_EXIT_CODE -eq 0 ]] && [[ -n "$SEND_OUTPUT" ]]; then
+    set -e
+    # PASS only if command exits with status 0, output is non-empty, and output is not an explicit CLI error.
+    # Do not validate semantic content of the model response.
+    if [[ $SEND_EXIT_CODE -eq 0 ]] && [[ -n "$SEND_OUTPUT" ]] && ! echo "$SEND_OUTPUT" | grep -q "^Erro:"; then
         print_result "labia-chat chat send" "PASS"
-        # Preview first line only (do not fail based on generated wording)
         echo "  Response preview: $(echo "$SEND_OUTPUT" | head -n1)"
     else
         print_result "labia-chat chat send" "FAIL" "$SEND_OUTPUT"
@@ -183,10 +184,12 @@ if [[ "$WITH_MODEL" == "true" ]]; then
     
     # Step 7: List messages (should have 1 message now)
     echo "--- Step 7: List Messages (with message) ---"
-    MESSAGES_OUTPUT2=$(labia-chat messages list "$CONVERSATION_ID" --limit 10 --offset 0 2>&1) || true
+    set +e
+    MESSAGES_OUTPUT2=$(labia-chat messages list "$CONVERSATION_ID" --limit 10 --offset 0 2>&1)
     MESSAGES_EXIT_CODE=$?
-    # PASS if command exits with status 0 (do not validate content)
-    if [[ $MESSAGES_EXIT_CODE -eq 0 ]]; then
+    set -e
+    # PASS only if command exits with status 0 and the conversation is no longer empty.
+    if [[ $MESSAGES_EXIT_CODE -eq 0 ]] && ! echo "$MESSAGES_OUTPUT2" | grep -q "^Nenhuma mensagem ainda\."; then
         print_result "labia-chat messages list (with message)" "PASS"
         echo "  Output preview: $(echo "$MESSAGES_OUTPUT2" | head -n1)"
     else
