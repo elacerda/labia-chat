@@ -849,6 +849,48 @@ def main() -> int:
         version=f"%(prog)s {get_cli_version()}",
     )
 
+    # Argumentos compartilhados para entrypoint interativo (sem subcomando)
+    parser.add_argument(
+        "--api-url",
+        type=str,
+        help="URL do backend (padrão: http://127.0.0.1:8010 ou LABIA_CHAT_API_URL)",
+    )
+    parser.add_argument(
+        "--token",
+        type=str,
+        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN ou prompt sem eco)",
+    )
+    parser.add_argument(
+        "--title",
+        type=str,
+        help="Título da nova conversa",
+    )
+    parser.add_argument(
+        "--conversation-id",
+        type=str,
+        help="ID da conversa para retomar (UUID)",
+    )
+    parser.add_argument(
+        "--show-last",
+        type=int,
+        default=10,
+        help="Número de mensagens a exibir no histórico (padrão: 10)",
+    )
+    chat_stream_group = parser.add_mutually_exclusive_group()
+    chat_stream_group.add_argument(
+        "--stream",
+        action="store_true",
+        dest="stream",
+        help=argparse.SUPPRESS,
+    )
+    chat_stream_group.add_argument(
+        "--no-stream",
+        action="store_false",
+        dest="stream",
+        help="Usa o endpoint não-streaming legado",
+    )
+    parser.set_defaults(stream=True)
+
     subparsers = parser.add_subparsers(dest="command", help="Comandos disponíveis")
 
     # Comando config
@@ -1114,8 +1156,8 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.command is None:
-        parser.print_help()
-        return 0
+        # Default to interactive chat REPL
+        return chat_command(args)
 
     if args.command == "config":
         if args.config_command == "show":
