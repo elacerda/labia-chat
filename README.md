@@ -81,7 +81,7 @@ echo
 labia-chat config show
 labia-chat doctor
 labia-chat conversations list
-labia-chat chat
+labia-chat
 ```
 
 Use `labia-chat chat send <conversation-id> "Olá" --no-stream` ou

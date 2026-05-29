@@ -536,16 +536,26 @@ class TestMain:
                     mock_chat.assert_called_once_with(args)
 
     def test_main_without_command(self) -> None:
-        """Testa main sem comando."""
-        with patch("argparse.ArgumentParser.print_help") as mock_help:
+        """Testa main sem comando inicia chat interativo."""
+        with patch("labia_chat.cli.chat_command") as mock_chat:
+            mock_chat.return_value = 0
+
             with patch("argparse.ArgumentParser.parse_args") as mock_parse:
-                args = argparse.Namespace(command=None)
+                args = argparse.Namespace(
+                    command=None,
+                    api_url=None,
+                    token=None,
+                    title=None,
+                    conversation_id=None,
+                    show_last=10,
+                    stream=True,
+                )
                 mock_parse.return_value = args
 
                 result = main()
 
                 assert result == 0
-                mock_help.assert_called_once()
+                mock_chat.assert_called_once_with(args)
 
     def test_main_with_config_show_command(self) -> None:
         """Testa main com comando config show."""
@@ -1959,3 +1969,91 @@ class TestVersionAndErrorPolish:
 
         output = capsys.readouterr().out
         assert output.count("labia-chat doctor") == 1
+
+
+class TestDefaultInteractiveEntrypoint:
+    """Testes para labia-chat sem subcomando (entrypoint padrão interativo)."""
+
+    def test_no_argument_invocation_starts_chat(self) -> None:
+        """Testa que labia-chat sem argumentos inicia o chat interativo."""
+        with patch("labia_chat.cli.chat_command") as mock_chat:
+            mock_chat.return_value = 0
+
+            with patch("sys.argv", ["labia-chat"]):
+                result = main()
+
+                assert result == 0
+                mock_chat.assert_called_once()
+
+    def test_no_argument_invocation_passes_chat_args(self) -> None:
+        """Testa que argumentos do chat são passados ao iniciar sem subcomando."""
+        with patch("labia_chat.cli.chat_command") as mock_chat:
+            mock_chat.return_value = 0
+
+            with patch("sys.argv", ["labia-chat", "--show-last", "5"]):
+                result = main()
+
+                assert result == 0
+                mock_chat.assert_called_once()
+                # Verifica que o argumento show_last foi passado
+                call_args = mock_chat.call_args
+                args = call_args[0][0]
+                assert args.show_last == 5
+
+    def test_help_flag_prints_help_and_exits(self) -> None:
+        """Testa que --help imprime ajuda e não inicia o chat."""
+        with patch("labia_chat.cli.chat_command") as mock_chat:
+            with patch("sys.argv", ["labia-chat", "--help"]):
+                # argparse sai com SystemExit(0) ao imprimir --help
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+
+                assert exc_info.value.code == 0
+                mock_chat.assert_not_called()
+
+    def test_version_flag_prints_version_and_exits(self) -> None:
+        """Testa que --version imprime versão e não inicia o chat."""
+        with patch("labia_chat.cli.chat_command") as mock_chat:
+            with patch("sys.argv", ["labia-chat", "--version"]):
+                # argparse sai com SystemExit(0) ao imprimir --version
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+
+                assert exc_info.value.code == 0
+                mock_chat.assert_not_called()
+
+    def test_explicit_chat_command_still_works(self) -> None:
+        """Testa que labia-chat chat continua funcionando como antes."""
+        with patch("labia_chat.cli.chat_command") as mock_chat:
+            mock_chat.return_value = 0
+
+            with patch("sys.argv", ["labia-chat", "chat"]):
+                result = main()
+
+                assert result == 0
+                mock_chat.assert_called_once()
+
+    def test_explicit_chat_command_with_args_still_works(self) -> None:
+        """Testa que labia-chat chat com argumentos continua funcionando."""
+        with patch("labia_chat.cli.chat_command") as mock_chat:
+            mock_chat.return_value = 0
+
+            with patch("sys.argv", ["labia-chat", "chat", "--show-last", "3"]):
+                result = main()
+
+                assert result == 0
+                mock_chat.assert_called_once()
+                call_args = mock_chat.call_args
+                args = call_args[0][0]
+                assert args.show_last == 3
+
+    def test_other_subcommands_still_work(self) -> None:
+        """Testa que outros subcomandos continuam funcionando normalmente."""
+        with patch("labia_chat.cli.config_show_command") as mock_config:
+            mock_config.return_value = 0
+
+            with patch("sys.argv", ["labia-chat", "config", "show"]):
+                result = main()
+
+                assert result == 0
+                mock_config.assert_called_once()

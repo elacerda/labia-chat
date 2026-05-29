@@ -46,6 +46,7 @@ labia-chat doctor --with-model
 Streaming is enabled by default for interactive chat and `chat send`.
 
 ```bash
+labia-chat
 labia-chat chat
 labia-chat chat send <conversation-id> "Hello"
 ```
@@ -55,10 +56,18 @@ labia-chat chat send <conversation-id> "Hello"
 Start a new terminal chat session:
 
 ```bash
-labia-chat chat
+labia-chat
 ```
 
-Resume an existing conversation:
+The `labia-chat` command with no arguments opens the same interactive REPL as `labia-chat chat`.
+
+To resume an existing conversation:
+
+```bash
+labia-chat --conversation-id <conversation-id>
+```
+
+Or use the explicit form:
 
 ```bash
 labia-chat chat --conversation-id <conversation-id>
