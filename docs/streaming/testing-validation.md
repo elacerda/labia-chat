@@ -25,6 +25,15 @@ bash backend/scripts/smoke_cli.sh
 bash backend/scripts/smoke_cli.sh --with-model
 ```
 
+Checklist final de PR:
+
+- [ ] `python -m ruff check src/ tests/`
+- [ ] `python -m pytest tests/ -q`
+- [ ] `python -m alembic current`
+- [ ] `bash backend/scripts/smoke_cli.sh`
+- [ ] `bash backend/scripts/smoke_cli.sh --with-model`
+- [ ] Checagem manual de streaming via CLI ou `curl -N`
+
 ## 2. Testes unitários obrigatórios
 
 ### 2.1 Helpers SSE
@@ -53,12 +62,12 @@ def test_sse_text_preserves_markdown_code_fence_chunk():
 
 def test_sse_json_event_encodes_done():
     assert (
-        sse_json_event("done", {"message_id": "123"})
-        == 'event: done\ndata: {"message_id": "123"}\n\n'
+        sse_json_event({"message_id": "123"}, event="done")
+        == 'event: done\ndata: {"message_id":"123"}\n\n'
     )
 ```
 
-A saída exata do JSON pode variar se o helper usar separadores compactos. Ajustar o teste ao padrão adotado.
+A saída do JSON usa separadores compactos.
 
 ### 2.2 Parsing vLLM streaming
 
@@ -137,23 +146,33 @@ event: done
 data: {"message_id":"..."}
 ```
 
-## 4. Smoke sugerido futuro
+### 3.1 CLI streaming padrão
 
-Depois da implementação backend, criar script opcional:
-
-```text
-backend/scripts/smoke_streaming.sh
+```bash
+labia-chat chat send "$CONVERSATION_ID" "Responda com uma lista curta em Markdown."
 ```
 
-Esse script deve validar:
+No chat interativo:
 
-- health;
-- auth;
-- criar conversa;
-- chamar endpoint streaming;
-- verificar que recebeu pelo menos um chunk;
-- verificar que recebeu `event: done`;
-- verificar que messages list contém user + assistant.
+```bash
+labia-chat chat
+```
+
+### 3.2 CLI fallback não-streaming
+
+```bash
+labia-chat chat send "$CONVERSATION_ID" "Responda em uma frase curta." --no-stream
+labia-chat chat --no-stream
+```
+
+## 4. Smoke operacional
+
+O script existente deve continuar passando. Com `--with-model`, o envio via `labia-chat chat send` usa streaming por padrão.
+
+```bash
+bash backend/scripts/smoke_cli.sh
+bash backend/scripts/smoke_cli.sh --with-model
+```
 
 ## 5. Critérios de regressão
 

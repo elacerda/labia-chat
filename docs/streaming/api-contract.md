@@ -1,7 +1,7 @@
 # Contrato de API — Chat streaming SSE
 
 Data: 2026-05-28  
-Status: contrato proposto para implementação
+Status: contrato implementado
 
 ## 1. Endpoint novo
 
@@ -27,17 +27,13 @@ O token nunca deve ser incluído em logs, mensagens de erro, eventos SSE ou docu
 
 ## 3. Request
 
-O payload deve ser o mesmo do endpoint atual de geração persistente.
-
-Exemplo ilustrativo:
+O payload é o mesmo do endpoint atual de geração persistente:
 
 ```json
 {
   "content": "Explique o que é o projeto labia-chat."
 }
 ```
-
-Se o schema real do endpoint atual tiver outro nome de campo, reutilizar exatamente o schema existente. Não criar divergência entre `/generate` e `/generate/stream` sem decisão explícita.
 
 ## 4. Response
 
@@ -67,7 +63,7 @@ headers = {
 
 ### 5.1 Chunks normais
 
-Chunks normais devem conter apenas texto da resposta do assistant.
+Chunks normais devem conter apenas texto da resposta do assistant, em eventos SSE sem `event:` explícito.
 
 Não usar:
 
@@ -90,6 +86,8 @@ data: , Eduardo.
 
 data: Posso ajudar com o projeto.
 ```
+
+O frontend deve anexar esse texto diretamente à mensagem do assistant. Não fazer `JSON.parse()` em chunks normais.
 
 ### 5.2 Evento de conclusão
 
@@ -137,7 +135,7 @@ Regras:
 
 ### 5.4 Preservação de quebras de linha
 
-O helper de texto deve preservar chunks como:
+O helper de texto preserva chunks como:
 
 ```python
 "\n"
@@ -147,7 +145,7 @@ O helper de texto deve preservar chunks como:
 "\t"
 ```
 
-Implementação recomendada:
+Implementação atual:
 
 ```python
 def sse_text(text: str) -> str:
@@ -173,11 +171,22 @@ Para eventos estruturados:
 import json
 from typing import Any
 
-def sse_json_event(event: str, payload: dict[str, Any]) -> str:
+def sse_json_event(obj: Any, event: str) -> str:
     """Encode a named SSE event with a JSON payload."""
-    data = json.dumps(payload, ensure_ascii=False)
-    return f"event: {event}\ndata: {data}\n\n"
+    data = json.dumps(obj, separators=(",", ":"))
+    safe_data = data.replace("\n", "\ndata: ")
+    return f"event: {event}\ndata: {safe_data}\n\n"
 ```
+
+Exemplo de Markdown em múltiplas linhas `data:`:
+
+```text
+data: ```python
+data: print("oi")
+data: ```
+```
+
+O cliente reconstrói isso como uma única string com `\n`.
 
 ## 6. Semântica de persistência
 
@@ -241,7 +250,23 @@ curl -N \
 
 O `-N` evita buffering do `curl`.
 
-## 9. Exemplo de resposta
+## 9. CLI
+
+Streaming por padrão:
+
+```bash
+labia-chat chat send "$CONVERSATION_ID" "Responda em duas linhas."
+labia-chat chat
+```
+
+Fallback não-streaming:
+
+```bash
+labia-chat chat send "$CONVERSATION_ID" "Responda em duas linhas." --no-stream
+labia-chat chat --no-stream
+```
+
+## 10. Exemplo de resposta
 
 ```text
 data: Olá!
@@ -253,3 +278,12 @@ data: segunda linha.
 event: done
 data: {"message_id":"a3c1..."}
 ```
+
+## 11. Checklist final de PR
+
+- [ ] `python -m ruff check src/ tests/`
+- [ ] `python -m pytest tests/ -q`
+- [ ] `python -m alembic current`
+- [ ] `bash backend/scripts/smoke_cli.sh`
+- [ ] `bash backend/scripts/smoke_cli.sh --with-model`
+- [ ] Checagem manual de streaming via CLI ou `curl -N`

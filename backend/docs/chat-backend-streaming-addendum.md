@@ -1,9 +1,9 @@
 # Adendo ao backend — Endpoint de streaming de chat
 
 Data: 2026-05-28  
-Status: Proposto
+Status: Implementado
 
-Este documento é um adendo à documentação operacional do backend. Ele descreve o endpoint novo de streaming sem substituir o contrato existente.
+Este documento é um adendo à documentação operacional do backend. Ele descreve o endpoint de streaming implementado sem substituir o contrato existente.
 
 ## Endpoint não-streaming existente
 
@@ -17,6 +17,14 @@ POST /chat/conversations/{conversation_id}/generate
 
 ```text
 POST /chat/conversations/{conversation_id}/generate/stream
+```
+
+Payload igual ao endpoint não-streaming:
+
+```json
+{
+  "content": "Mensagem do usuário"
+}
 ```
 
 ## Autenticação
@@ -38,7 +46,7 @@ X-Accel-Buffering: no
 
 ## Chunks normais
 
-Texto puro:
+Texto puro, em mensagens SSE `data:` sem nome de evento:
 
 ```text
 data: Olá
@@ -46,11 +54,21 @@ data: Olá
 data: , Eduardo.
 ```
 
-Não usar JSON repetitivo:
+Não são objetos JSON de token:
 
 ```text
 data: {"token":"Olá"}
 ```
+
+Quebras de linha, linhas em branco, indentação e Markdown são preservados por múltiplas linhas `data:` dentro do mesmo evento SSE:
+
+```text
+data: ```python
+data: print("oi")
+data: ```
+```
+
+O cliente deve reconstruir essas linhas como texto normal do assistant.
 
 ## Eventos de controle
 
@@ -67,6 +85,8 @@ Erro:
 event: error
 data: {"detail":"Falha ao gerar resposta"}
 ```
+
+Somente `done` e `error` devem ser interpretados como JSON pelo cliente.
 
 ## Persistência
 
@@ -96,6 +116,22 @@ curl -N \
   -X POST \
   "http://127.0.0.1:8010/chat/conversations/$CONVERSATION_ID/generate/stream" \
   -d '{"content":"Responda em Markdown."}'
+```
+
+## CLI
+
+O CLI usa streaming por padrão:
+
+```bash
+labia-chat chat send "$CONVERSATION_ID" "Responda em uma frase curta."
+labia-chat chat
+```
+
+Fallback não-streaming:
+
+```bash
+labia-chat chat send "$CONVERSATION_ID" "Responda em uma frase curta." --no-stream
+labia-chat chat --no-stream
 ```
 
 ## Observações para operação

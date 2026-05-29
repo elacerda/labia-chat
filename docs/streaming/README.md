@@ -1,8 +1,8 @@
 # Streaming SSE para respostas de chat no `labia-chat`
 
-Data: 2026-05-28  
-Status: Proposta técnica pronta para implementação  
-Escopo: backend + contrato frontend + CLI opcional posterior
+Data: 2026-05-28
+Status: Implementado
+Escopo: backend + contrato frontend + CLI
 
 ## 1. Contexto
 
@@ -14,7 +14,7 @@ POST /chat/conversations/{conversation_id}/generate
 
 O frontend precisa de uma experiência de resposta incremental, semelhante ao ChatGPT e a outros chats de modelos de IA. Isso exige que o backend envie partes da resposta à medida que o modelo as gera, em vez de aguardar a resposta completa.
 
-Esta documentação propõe uma extensão explícita do contrato:
+Esta documentação registra a extensão explícita do contrato:
 
 ```text
 POST /chat/conversations/{conversation_id}/generate/stream
@@ -22,27 +22,27 @@ POST /chat/conversations/{conversation_id}/generate/stream
 
 O endpoint novo não substitui nem altera o endpoint atual. Ele adiciona uma forma streaming para o frontend e para clientes técnicos.
 
-## 2. Referência conceitual
+## 2. Contrato final
 
-O app de referência enviado pelo Gustavo implementa streaming com:
+O endpoint streaming implementado usa:
 
 - `StreamingResponse`;
 - `media_type="text/event-stream"`;
-- gerador assíncrono `event_stream()`;
+- gerador assíncrono de eventos SSE;
 - headers anti-buffering;
 - eventos SSE progressivos;
 - evento final de conclusão.
 
-No app de referência, os chunks são emitidos como JSON:
-
-```text
-data: {"token": "..."}
-```
-
-O refinamento solicitado pelo frontend é evitar esse wrapper repetitivo. No `labia-chat`, os chunks normais devem ser emitidos como texto puro:
+Chunks normais são texto puro:
 
 ```text
 data: pedaço da resposta
+```
+
+Não usar JSON repetitivo em chunks normais:
+
+```text
+data: {"token": "..."}
 ```
 
 Eventos de controle continuam estruturados:
@@ -54,6 +54,8 @@ data: {"message_id":"..."}
 event: error
 data: {"detail":"..."}
 ```
+
+Quebras de linha e Markdown são preservados com múltiplas linhas `data:` no mesmo evento SSE. O cliente deve juntar essas linhas com `\n` e anexar o resultado diretamente ao conteúdo do assistant.
 
 ## 3. Objetivo funcional
 
@@ -70,7 +72,33 @@ Quando o usuário envia uma mensagem:
 9. O backend envia evento `done`.
 10. O frontend finaliza a mensagem em tela.
 
-## 4. Fora de escopo inicial
+## 4. CLI
+
+O CLI consome streaming por padrão:
+
+```bash
+labia-chat chat send <conversation-id> "Mensagem"
+labia-chat chat
+```
+
+Fallback para o endpoint não-streaming:
+
+```bash
+labia-chat chat send <conversation-id> "Mensagem" --no-stream
+labia-chat chat --no-stream
+```
+
+## 5. Handoff frontend para Gustavo
+
+- Usar `fetch()`, não `EventSource`, porque a chamada é `POST` com `Authorization` e body JSON.
+- Ler `response.body` com `getReader()` e decodificar como UTF-8.
+- Para eventos normais `message`, anexar `event.data` diretamente ao texto do assistant.
+- Fazer `JSON.parse()` apenas nos eventos `done` e `error`.
+- Usar `AbortController` ao sair da conversa ou cancelar a geração.
+
+Exemplo completo e parser mínimo: [frontend-integration.md](frontend-integration.md).
+
+## 6. Fora de escopo inicial
 
 - WebSocket.
 - Cursor pagination.
@@ -82,58 +110,9 @@ Quando o usuário envia uma mensagem:
 - Streaming de metadados a cada chunk.
 - Streaming de sources/RAG, pois o `labia-chat` atual não é RAG.
 
-## 5. Divisão sugerida em tarefas
+## 7. Critérios de aceite
 
-### Tarefa 1 — Planejamento e contrato
-
-Definir contrato SSE, eventos, headers, comportamento de persistência e critérios de aceite.
-
-### Tarefa 2 — Helpers SSE
-
-Criar helpers pequenos e testados para:
-
-- texto puro;
-- eventos JSON estruturados;
-- preservação de quebras de linha;
-- erro/done.
-
-### Tarefa 3 — vLLM streaming
-
-Adicionar suporte a `stream=true` no `VLLMClient`, extraindo deltas de chunks OpenAI-compatible.
-
-### Tarefa 4 — Serviços de geração/completion
-
-Adicionar fluxo de geração streaming preservando as regras de persistência:
-
-- user message antes;
-- assistant message apenas após sucesso;
-- sem transação aberta durante o streaming.
-
-### Tarefa 5 — Endpoint FastAPI
-
-Adicionar:
-
-```text
-POST /chat/conversations/{conversation_id}/generate/stream
-```
-
-com `StreamingResponse`.
-
-### Tarefa 6 — Testes
-
-Cobrir helpers, parsing de chunks, endpoint streaming, erro e preservação do endpoint não-streaming.
-
-### Tarefa 7 — CLI opcional
-
-Adicionar consumo streaming no CLI depois que o backend estiver estável.
-
-### Tarefa 8 — Documentação operacional
-
-Atualizar docs para frontend e backend.
-
-## 6. Critérios de aceite
-
-A implementação estará pronta quando:
+A implementação está pronta quando:
 
 - `/generate` continuar funcionando como antes.
 - `/generate/stream` emitir `text/event-stream`.
@@ -146,3 +125,12 @@ A implementação estará pronta quando:
 - desconexão/erro não persistir resposta parcial.
 - testes passarem.
 - smoke existente continuar passando.
+
+## 8. Checklist final de PR
+
+- [ ] `python -m ruff check src/ tests/`
+- [ ] `python -m pytest tests/ -q`
+- [ ] `python -m alembic current`
+- [ ] `bash backend/scripts/smoke_cli.sh`
+- [ ] `bash backend/scripts/smoke_cli.sh --with-model`
+- [ ] Checagem manual de streaming via CLI ou `curl -N`

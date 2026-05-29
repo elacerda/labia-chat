@@ -3,6 +3,8 @@
 Data: 2026-05-28  
 Público: frontend do `labia-chat`
 
+Resumo para Gustavo: usar `fetch()` com `ReadableStream`, não `EventSource`, porque o endpoint é `POST`, exige `Authorization` e recebe body JSON.
+
 ## 1. Endpoint
 
 ```text
@@ -19,13 +21,21 @@ Accept: text/event-stream
 
 ## 2. Formato do stream
 
-Chunks normais são texto puro:
+Chunks normais são texto puro em eventos SSE `message`:
 
 ```text
 data: Olá
 
 data: , Eduardo
 ```
+
+Eles não são JSON:
+
+```text
+data: {"token":"Olá"}
+```
+
+Quebras de linha e Markdown chegam como múltiplas linhas `data:` no mesmo evento SSE e devem ser preservados.
 
 Evento de conclusão:
 
@@ -48,7 +58,13 @@ Como a requisição é `POST` com `Authorization`, usar `fetch()` com `ReadableS
 Exemplo conceitual:
 
 ```js
-async function streamAssistantResponse({ apiUrl, token, conversationId, payload }) {
+async function streamAssistantResponse({
+  apiUrl,
+  token,
+  conversationId,
+  payload,
+  signal,
+}) {
   const response = await fetch(
     `${apiUrl}/chat/conversations/${conversationId}/generate/stream`,
     {
@@ -59,6 +75,7 @@ async function streamAssistantResponse({ apiUrl, token, conversationId, payload 
         "Accept": "text/event-stream",
       },
       body: JSON.stringify(payload),
+      signal,
     },
   );
 
@@ -84,6 +101,7 @@ async function streamAssistantResponse({ apiUrl, token, conversationId, payload 
       handleSseEvent(rawEvent);
     }
   }
+
 }
 ```
 
@@ -117,6 +135,7 @@ function handleSseEvent(rawEvent) {
   const event = parseSseEvent(rawEvent);
 
   if (event.event === "message") {
+    // Texto puro. Nao fazer JSON.parse().
     appendToAssistantMessage(event.data);
     return;
   }
@@ -151,10 +170,11 @@ function handleSseEvent(rawEvent) {
 ```js
 const controller = new AbortController();
 
-fetch(url, {
-  method: "POST",
-  headers,
-  body,
+streamAssistantResponse({
+  apiUrl,
+  token,
+  conversationId,
+  payload,
   signal: controller.signal,
 });
 
@@ -163,6 +183,8 @@ controller.abort();
 ```
 
 O backend deve tratar desconexão sem persistir resposta parcial.
+
+Usar cancelamento ao sair da conversa, trocar de conversa ou clicar em parar geração.
 
 ## 8. Observações
 

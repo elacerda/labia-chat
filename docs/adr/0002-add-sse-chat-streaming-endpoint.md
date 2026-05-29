@@ -1,7 +1,7 @@
 # ADR 0002 — Adicionar endpoint SSE para streaming de respostas de chat
 
 Data: 2026-05-28  
-Status: Proposto
+Status: Aceito e implementado
 
 ## Contexto
 
@@ -61,12 +61,14 @@ SSE é suficiente para o caso de uso:
 
 Chunks normais em texto puro reduzem overhead e evitam repetir `{"token": ...}` em cada evento.
 
+Quebras de linha e Markdown são preservados com múltiplas linhas `data:` no mesmo evento SSE. O cliente deve anexar chunks normais como texto e fazer parse JSON apenas dos eventos `done` e `error`.
+
 ## Consequências positivas
 
 - Experiência de usuário tipo ChatGPT.
 - Contrato antigo preservado.
 - Frontend pode renderizar incrementalmente.
-- CLI pode futuramente usar o mesmo endpoint.
+- CLI usa o mesmo endpoint por padrão.
 - Implementação menor que WebSocket.
 
 ## Consequências negativas / riscos
@@ -87,6 +89,7 @@ Chunks normais em texto puro reduzem overhead e evitam repetir `{"token": ...}` 
 - Persistir assistant apenas no sucesso.
 - Testes unitários para helpers SSE.
 - Testes de regressão para `/generate`.
+- Fallback CLI com `--no-stream`.
 
 ## Alternativas consideradas
 
@@ -111,3 +114,5 @@ Parcialmente rejeitado. O app de referência usa `data: {"token": "..."}`, mas o
 - `error` é estruturado.
 - newlines e Markdown são preservados.
 - assistant parcial não é persistido em erro/desconexão.
+- CLI usa streaming por padrão em `chat send` e `chat`.
+- CLI mantém fallback `--no-stream` para `/generate`.
