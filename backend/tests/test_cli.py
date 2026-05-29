@@ -1,10 +1,12 @@
 """Testes do CLI principal."""
 
 import argparse
+from importlib.metadata import PackageNotFoundError
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from labia_chat import __version__
 from labia_chat.cli import (
     auth_me_command,
     chat_command,
@@ -13,8 +15,10 @@ from labia_chat.cli import (
     conversations_create_command,
     conversations_list_command,
     doctor_command,
+    get_cli_version,
     main,
     messages_list_command,
+    print_cli_error,
     resolve_api_url,
     resolve_token,
 )
@@ -291,6 +295,31 @@ class TestChatCommand:
 
 class TestMain:
     """Testes da função main."""
+
+    def test_main_help_includes_examples(self, capsys) -> None:
+        """Testa que --help exibe exemplos representativos."""
+        with patch("sys.argv", ["labia-chat", "--help"]):
+            with pytest.raises(SystemExit) as exc_info:
+                main()
+
+        output = capsys.readouterr().out
+        assert exc_info.value.code == 0
+        assert "Exemplos:" in output
+        assert "labia-chat config show" in output
+        assert "labia-chat doctor" in output
+        assert "labia-chat conversations list" in output
+        assert 'labia-chat chat send <conversation-id> "Olá"' in output
+
+    def test_main_version_uses_resolved_version(self, capsys) -> None:
+        """Testa que --version imprime a versão resolvida."""
+        with patch("labia_chat.cli.get_cli_version", return_value="9.9.9"):
+            with patch("sys.argv", ["labia-chat", "--version"]):
+                with pytest.raises(SystemExit) as exc_info:
+                    main()
+
+        output = capsys.readouterr().out
+        assert exc_info.value.code == 0
+        assert output.strip() == "labia-chat 9.9.9"
 
     def test_main_with_chat_command(self) -> None:
         """Testa main com comando chat."""
@@ -1705,3 +1734,27 @@ class TestTimeoutAndNetworkErrorHandling:
 
             assert result == 1
             mock_client.close.assert_called_once()
+
+
+class TestVersionAndErrorPolish:
+    """Testes de versão e mensagens de erro."""
+
+    def test_get_cli_version_uses_package_metadata(self) -> None:
+        """Testa que a versão instalada tem precedência."""
+        with patch("labia_chat.cli.metadata.version", return_value="1.2.3"):
+            assert get_cli_version() == "1.2.3"
+
+    def test_get_cli_version_falls_back_to_module_version(self) -> None:
+        """Testa fallback quando metadata do pacote não está disponível."""
+        with patch(
+            "labia_chat.cli.metadata.version",
+            side_effect=PackageNotFoundError,
+        ):
+            assert get_cli_version() == __version__
+
+    def test_print_cli_error_avoids_duplicate_doctor_hint(self, capsys) -> None:
+        """Testa que sugestão do doctor não é duplicada."""
+        print_cli_error(Exception("Falha. Rode labia-chat doctor."))
+
+        output = capsys.readouterr().out
+        assert output.count("labia-chat doctor") == 1

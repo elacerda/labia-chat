@@ -3,7 +3,9 @@
 import argparse
 import getpass
 import os
+from importlib import metadata
 
+from labia_chat import __version__
 from labia_chat.cli_client import (
     AuthError,
     BackendError,
@@ -18,6 +20,33 @@ from labia_chat.cli_client import (
 
 DEFAULT_API_URL = "http://127.0.0.1:8010"
 DOCTOR_HINT = "Sugestão: execute `labia-chat doctor` para diagnosticar o ambiente."
+CLI_HANDLED_ERRORS = (
+    AuthError,
+    CLIPermissionError,
+    NotFoundError,
+    ValidationError,
+    BackendError,
+    ConnectionError,
+)
+HELP_EXAMPLES = """Exemplos:
+  labia-chat config show
+  labia-chat doctor
+  labia-chat conversations list
+  labia-chat chat send <conversation-id> "Olá"
+"""
+
+
+def get_cli_version() -> str:
+    """
+    Retorna a versão instalada do pacote.
+
+    Returns:
+        Versão do pacote ou fallback local.
+    """
+    try:
+        return metadata.version("labia-chat")
+    except metadata.PackageNotFoundError:
+        return __version__
 
 
 def resolve_api_url(args_api_url: str | None) -> str:
@@ -94,15 +123,20 @@ def resolve_token_optional_with_source(
     return None, "missing"
 
 
-def print_cli_error(error: Exception) -> None:
+def print_cli_error(error: Exception, context: str | None = None) -> None:
     """
     Imprime erro com orientação de diagnóstico.
 
     Args:
         error: Exceção tratada pelo CLI.
+        context: Contexto opcional para a mensagem.
     """
-    print(f"Erro: {error}")
-    print(DOCTOR_HINT)
+    if context:
+        print(f"Erro {context}: {error}")
+    else:
+        print(f"Erro: {error}")
+    if "labia-chat doctor" not in str(error):
+        print(DOCTOR_HINT)
 
 
 def print_diagnostic(status: str, label: str, detail: str = "") -> None:
@@ -702,18 +736,8 @@ def chat_command(args: argparse.Namespace) -> int:
                     messages = client.list_messages(conversation_id, limit=show_last)
                     print(f"Últimas {min(show_last, len(messages))} mensagens:")
                     print_messages(messages, show_last)
-                except AuthError as e:
-                    print(f"Erro ao carregar histórico: {e}")
-                except CLIPermissionError as e:
-                    print(f"Erro ao carregar histórico: {e}")
-                except NotFoundError as e:
-                    print(f"Erro ao carregar histórico: {e}")
-                except ValidationError as e:
-                    print(f"Erro ao carregar histórico: {e}")
-                except BackendError as e:
-                    print(f"Erro ao carregar histórico: {e}")
-                except ConnectionError as e:
-                    print(f"Erro ao carregar histórico: {e}")
+                except CLI_HANDLED_ERRORS as e:
+                    print_cli_error(e, "ao carregar histórico")
                 print()
 
             print("Digite /help para ver os comandos disponíveis.\n")
@@ -768,18 +792,9 @@ def chat_command(args: argparse.Namespace) -> int:
                     )
                     print(f"Últimas {min(show_last, len(messages))} mensagens:")
                     print_messages(messages, show_last)
-                except AuthError as e:
-                    print(f"Erro ao carregar histórico: {e}\n")
-                except CLIPermissionError as e:
-                    print(f"Erro ao carregar histórico: {e}\n")
-                except NotFoundError as e:
-                    print(f"Erro ao carregar histórico: {e}\n")
-                except ValidationError as e:
-                    print(f"Erro ao carregar histórico: {e}\n")
-                except BackendError as e:
-                    print(f"Erro ao carregar histórico: {e}\n")
-                except ConnectionError as e:
-                    print(f"Erro ao carregar histórico: {e}\n")
+                except CLI_HANDLED_ERRORS as e:
+                    print_cli_error(e, "ao carregar histórico")
+                    print()
                 continue
 
             # Envia mensagem normal
@@ -797,23 +812,9 @@ def chat_command(args: argparse.Namespace) -> int:
                     response = client.generate_message(user_input)
                     assistant_content = response.get("content", "")
                     print(f"Assistente: {assistant_content}\n")
-            except AuthError as e:
-                print(f"Erro: {e}\n")
-                break
-            except CLIPermissionError as e:
-                print(f"Erro: {e}\n")
-                break
-            except NotFoundError as e:
-                print(f"Erro: {e}\n")
-                break
-            except ValidationError as e:
-                print(f"Erro: {e}\n")
-                break
-            except BackendError as e:
-                print(f"Erro: {e}\n")
-                break
-            except ConnectionError as e:
-                print(f"Erro: {e}\n")
+            except CLI_HANDLED_ERRORS as e:
+                print_cli_error(e)
+                print()
                 break
 
     finally:
@@ -832,6 +833,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         prog="labia-chat",
         description="CLI para chat com modelos locais via backend FastAPI",
+        epilog=HELP_EXAMPLES,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {get_cli_version()}",
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Comandos disponíveis")
