@@ -75,6 +75,21 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
             raise
 
 
+async def dispose_engine() -> None:
+    """Descartar engine assíncrono e resetar estado global de sessão.
+
+    Deve ser chamado no shutdown da aplicação FastAPI para fechar
+    conexões abertas pelo pool do SQLAlchemy.
+    """
+    global _engine, _sessionmaker
+
+    if _engine is not None:
+        await _engine.dispose()
+
+    _engine = None
+    _sessionmaker = None
+
+
 async def get_async_session() -> AsyncIterator[AsyncSession]:
     """
     Dependency para obter sessão assíncrona.

@@ -1,14 +1,27 @@
 """App FastAPI principal do labia-chat."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from labia_chat.api.routes import auth_router, chat_router, health_router
 from labia_chat.core.config import settings
+from labia_chat.db.session import dispose_engine
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Gerenciar ciclo de vida da aplicação FastAPI."""
+    yield
+    await dispose_engine()
+
 
 app = FastAPI(
     title=settings.app_name,
     debug=settings.is_debug,
+    lifespan=lifespan,
 )
 
 # Configuração de CORS
