@@ -136,6 +136,13 @@ def print_assistant_response(response: dict) -> None:
     print(content)
 
 
+def print_stream_chunks(chunks) -> None:
+    """Imprime chunks de streaming sem buffering de linha."""
+    for chunk in chunks:
+        print(chunk, end="", flush=True)
+    print()
+
+
 def format_datetime(dt_str: str) -> str:
     """
     Formata uma string de datetime ISO para exibição em PT-BR.
@@ -416,8 +423,11 @@ def chat_send_command(args: argparse.Namespace) -> int:
 
         # Envia a mensagem
         try:
-            response = client.generate_message(args.message)
-            print_assistant_response(response)
+            if getattr(args, "stream", False):
+                print_stream_chunks(client.stream_generate_message(args.message))
+            else:
+                response = client.generate_message(args.message)
+                print_assistant_response(response)
             return 0
         except AuthError as e:
             print(f"Erro: {e}")
@@ -609,9 +619,15 @@ def chat_command(args: argparse.Namespace) -> int:
                 continue
 
             try:
-                response = client.generate_message(user_input)
-                assistant_content = response.get("content", "")
-                print(f"Assistente: {assistant_content}\n")
+                if getattr(args, "stream", False):
+                    print("Assistente: ", end="", flush=True)
+                    for chunk in client.stream_generate_message(user_input):
+                        print(chunk, end="", flush=True)
+                    print("\n")
+                else:
+                    response = client.generate_message(user_input)
+                    assistant_content = response.get("content", "")
+                    print(f"Assistente: {assistant_content}\n")
             except AuthError as e:
                 print(f"Erro: {e}\n")
                 break
@@ -810,6 +826,20 @@ def main() -> int:
         type=str,
         help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN ou prompt sem eco)",
     )
+    chat_send_stream_group = chat_send_parser.add_mutually_exclusive_group()
+    chat_send_stream_group.add_argument(
+        "--stream",
+        action="store_true",
+        dest="stream",
+        help=argparse.SUPPRESS,
+    )
+    chat_send_stream_group.add_argument(
+        "--no-stream",
+        action="store_false",
+        dest="stream",
+        help="Usa o endpoint não-streaming legado",
+    )
+    chat_send_parser.set_defaults(stream=True)
 
     # chat interativo (com argumentos existentes)
     chat_parser.add_argument(
@@ -838,6 +868,20 @@ def main() -> int:
         default=10,
         help="Número de mensagens a exibir no histórico (padrão: 10)",
     )
+    chat_stream_group = chat_parser.add_mutually_exclusive_group()
+    chat_stream_group.add_argument(
+        "--stream",
+        action="store_true",
+        dest="stream",
+        help=argparse.SUPPRESS,
+    )
+    chat_stream_group.add_argument(
+        "--no-stream",
+        action="store_false",
+        dest="stream",
+        help="Usa o endpoint não-streaming legado no chat interativo",
+    )
+    chat_parser.set_defaults(stream=True)
 
     args = parser.parse_args()
 

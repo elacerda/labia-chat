@@ -906,6 +906,36 @@ class TestChatSendCommand:
             mock_client.generate_message.assert_called_once_with("Olá, mundo!")
             mock_client.close.assert_called_once()
 
+    def test_chat_send_stream_success(self, capsys) -> None:
+        """Testa 'chat send --stream' imprimindo chunks."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token="test-token",
+            conversation_id="123e4567-e89b-12d3-a456-426614174000",
+            message="Olá, mundo!",
+            stream=True,
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+
+            mock_client.validate_token.return_value = {
+                "id": "user123",
+                "username": "testuser",
+            }
+            mock_client.stream_generate_message.return_value = iter(
+                ["Olá", ", mundo", "\n"]
+            )
+
+            result = chat_send_command(args)
+
+        assert result == 0
+        assert capsys.readouterr().out == "Olá, mundo\n\n"
+        mock_client.stream_generate_message.assert_called_once_with("Olá, mundo!")
+        mock_client.generate_message.assert_not_called()
+        mock_client.close.assert_called_once()
+
     def test_chat_send_with_env_token(self) -> None:
         """Testa 'chat send' usando token do env."""
         args = argparse.Namespace(
