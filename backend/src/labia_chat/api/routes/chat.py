@@ -1,8 +1,10 @@
 """Endpoint de chat para conversas e mensagens."""
 
+from collections.abc import AsyncIterator
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from labia_chat.api.deps import (
@@ -11,6 +13,7 @@ from labia_chat.api.deps import (
     get_chat_persistence_service,
     get_current_chat_user,
 )
+from labia_chat.api.sse import sse_json_event, sse_text
 from labia_chat.core.config import settings
 from labia_chat.models.user import ChatUser
 from labia_chat.schemas.chat import (
@@ -33,6 +36,12 @@ from labia_chat.services.chat_generation import (
 from labia_chat.services.chat_persistence import ChatPersistenceService
 
 router = APIRouter(prefix="/chat", tags=["chat"])
+
+SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
 
 
 @router.get("/conversations", response_model=list[ConversationResponse])
@@ -406,3 +415,70 @@ async def generate_response(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=error_msg,
             )
+
+
+@router.post(
+    "/conversations/{conversation_id}/generate/stream",
+    response_class=StreamingResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Geração persistente de resposta em streaming",
+    description=(
+        "Gera resposta do assistente para uma conversa existente via SSE, "
+        "persistindo a resposta do assistente apenas após conclusão bem-sucedida."
+    ),
+)
+async def generate_response_stream(
+    conversation_id: UUID,
+    payload: GenerateRequest,
+    chat_user: ChatUser = Depends(get_current_chat_user),
+    service: ChatCompletionService = Depends(get_chat_completion_service),
+) -> StreamingResponse:
+    """Streama resposta do assistente para uma conversa existente."""
+    if not payload.content or payload.content.strip() == "":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Content cannot be empty",
+        )
+
+    try:
+        stream_events = await service.complete_stream(
+            conversation_id=str(conversation_id),
+            user_id=chat_user.id,
+            content=payload.content,
+            model=settings.vllm_model,
+        )
+    except ChatCompletionNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=exc.message,
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    async def event_source() -> AsyncIterator[str]:
+        try:
+            async for event_type, data in stream_events:
+                if event_type == "text":
+                    yield sse_text(data or "")
+                elif event_type == "done":
+                    payload = {"message_id": data} if data is not None else {}
+                    yield sse_json_event(payload, event="done")
+        except ChatCompletionGenerationError:
+            yield sse_json_event(
+                {"detail": "Failed to generate response"},
+                event="error",
+            )
+        except Exception:
+            yield sse_json_event(
+                {"detail": "Failed to generate response"},
+                event="error",
+            )
+
+    return StreamingResponse(
+        event_source(),
+        media_type="text/event-stream",
+        headers=SSE_HEADERS,
+    )

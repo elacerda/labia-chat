@@ -42,6 +42,17 @@ class FakeAsyncHTTPClient:
         }
         return self._response
 
+    def stream(self, method: str, path: str, json: dict | None = None):
+        """Simula streaming POST e armazena a requisição."""
+        self.call_count += 1
+        self.last_request = {
+            "method": method,
+            "path": path,
+            "json": json,
+            "headers": self._headers,
+        }
+        return FakeStreamContext(self._stream_response)
+
     def set_success_response(self, content: str = "Test response"):
         """Configura uma resposta de sucesso."""
         self._response = FakeHTTPResponse(
@@ -95,6 +106,17 @@ class FakeAsyncHTTPClient:
             },
         )
 
+    def set_stream_response(
+        self,
+        lines: list[str],
+        status_code: int = HTTPStatus.OK,
+    ):
+        """Configura uma resposta de streaming."""
+        self._stream_response = FakeStreamResponse(
+            status_code=status_code,
+            lines=lines,
+        )
+
 
 class FakeHTTPResponse:
     """Fake de httpx.Response para testes."""
@@ -109,6 +131,31 @@ class FakeHTTPResponse:
     @property
     def text(self) -> str:
         return str(self._json_data)
+
+
+class FakeStreamContext:
+    """Fake async context manager returned by httpx.AsyncClient.stream."""
+
+    def __init__(self, response):
+        self.response = response
+
+    async def __aenter__(self):
+        return self.response
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+
+class FakeStreamResponse:
+    """Fake streaming response for OpenAI-compatible SSE chunks."""
+
+    def __init__(self, status_code: int, lines: list[str]):
+        self.status_code = status_code
+        self._lines = lines
+
+    async def aiter_lines(self):
+        for line in self._lines:
+            yield line
 
 
 @pytest.fixture
@@ -389,3 +436,61 @@ class TestVLLMClient:
         finally:
             client._client = original_client
 
+    @pytest.mark.asyncio
+    async def test_generate_stream_yields_text_deltas_and_skips_empty(
+        self, vllm_client
+    ):
+        """Testa streaming OpenAI-compatible via choices[].delta.content."""
+        fake_http = FakeAsyncHTTPClient(base_url="", timeout=0)
+        fake_http.set_headers({"Content-Type": "application/json"})
+        fake_http.set_stream_response(
+            [
+                'data: {"choices":[{"delta":{"content":"Hel"}}]}',
+                'data: {"choices":[{"delta":{"content":""}}]}',
+                'data: {"choices":[{"delta":{}}]}',
+                'data: {"choices":[{"delta":{"content":"lo"}}]}',
+                "data: [DONE]",
+            ]
+        )
+
+        original_client = vllm_client._client
+        vllm_client._client = fake_http
+
+        try:
+            chunks = [
+                chunk
+                async for chunk in vllm_client.generate_stream(
+                    messages=[{"role": "user", "content": "Hello"}],
+                    temperature=0.2,
+                    max_tokens=64,
+                )
+            ]
+
+            assert chunks == ["Hel", "lo"]
+            assert fake_http.last_request["method"] == "POST"
+            assert fake_http.last_request["path"] == "/v1/chat/completions"
+            assert fake_http.last_request["json"]["stream"] is True
+            assert fake_http.last_request["json"]["temperature"] == 0.2
+            assert fake_http.last_request["json"]["max_tokens"] == 64
+        finally:
+            vllm_client._client = original_client
+
+    @pytest.mark.asyncio
+    async def test_generate_stream_raises_on_invalid_json(self, vllm_client):
+        """Testa erro seguro para chunk SSE com JSON inválido."""
+        fake_http = FakeAsyncHTTPClient(base_url="", timeout=0)
+        fake_http.set_stream_response(["data: not-json"])
+
+        original_client = vllm_client._client
+        vllm_client._client = fake_http
+
+        try:
+            with pytest.raises(VLLMClientError, match="parse"):
+                [
+                    chunk
+                    async for chunk in vllm_client.generate_stream(
+                        messages=[{"role": "user", "content": "Hello"}]
+                    )
+                ]
+        finally:
+            vllm_client._client = original_client

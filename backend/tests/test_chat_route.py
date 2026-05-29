@@ -2,6 +2,7 @@
 
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from labia_chat.api.deps import (
@@ -12,6 +13,7 @@ from labia_chat.api.deps import (
     get_chat_user_sync_service,
     get_current_chat_user,
 )
+from labia_chat.api.routes.chat import GenerateRequest, generate_response_stream
 from labia_chat.main import app
 
 client = TestClient(app)
@@ -1490,7 +1492,9 @@ class FakeChatCompletionService:
 
     def __init__(self):
         self.complete_calls: list = []
+        self.complete_stream_calls: list = []
         self.messages: list = []
+        self.stream_message_id = str(uuid4())
 
     async def complete(
         self,
@@ -1527,6 +1531,30 @@ class FakeChatCompletionService:
         )()
         self.messages.append(msg)
         return msg
+
+    async def complete_stream(
+        self,
+        conversation_id: str,
+        user_id: str,
+        content: str,
+        model: str | None = None,
+    ):
+        """Simula geração de resposta em streaming."""
+        self.complete_stream_calls.append(
+            {
+                "conversation_id": conversation_id,
+                "user_id": user_id,
+                "content": content,
+                "model": model,
+            }
+        )
+
+        async def events():
+            yield "text", "Hello"
+            yield "text", ", world"
+            yield "done", self.stream_message_id
+
+        return events()
 
 
 def test_generate_response_returns_201_and_message_response() -> None:
@@ -1632,6 +1660,60 @@ def test_generate_response_does_not_expose_user_id() -> None:
         assert "user_id" not in data
     finally:
         app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_generate_response_stream_returns_sse_and_done_event() -> None:
+    """Testa handler /generate/stream retorna chunks SSE e evento done."""
+    internal_id = str(uuid4())
+    fake_user = FakeChatUser(id=internal_id, adss_id="adss-user-123")
+    fake_service = FakeChatCompletionService()
+
+    fake_persistence = FakeChatPersistenceService()
+    created_conv = fake_persistence.create_conversation_sync(
+        user_id=internal_id,
+        title="Test Conversation",
+        metadata={},
+    )
+
+    response = await generate_response_stream(
+        conversation_id=created_conv.id,
+        payload=GenerateRequest(content="Test content"),
+        chat_user=fake_user,
+        service=fake_service,
+    )
+
+    body = "".join([chunk async for chunk in response.body_iterator])
+
+    assert response.status_code == 200
+    assert response.media_type == "text/event-stream"
+    assert response.headers["cache-control"] == "no-cache"
+    assert response.headers["connection"] == "keep-alive"
+    assert response.headers["x-accel-buffering"] == "no"
+    assert body == (
+        "data: Hello\n\n"
+        "data: , world\n\n"
+        f'event: done\ndata: {{"message_id":"{fake_service.stream_message_id}"}}\n\n'
+    )
+    assert len(fake_service.complete_stream_calls) == 1
+    call = fake_service.complete_stream_calls[0]
+    assert call["conversation_id"] == str(created_conv.id)
+    assert call["user_id"] == internal_id
+    assert call["content"] == "Test content"
+    assert call["model"] == "qwen-coder-next"
+    assert fake_service.complete_calls == []
+
+
+def test_generate_and_generate_stream_routes_are_registered() -> None:
+    """Testa que endpoint antigo permanece e novo endpoint foi registrado."""
+    post_paths = {
+        route.path
+        for route in app.routes
+        if "POST" in getattr(route, "methods", set())
+    }
+
+    assert "/chat/conversations/{conversation_id}/generate" in post_paths
+    assert "/chat/conversations/{conversation_id}/generate/stream" in post_paths
 
 
 def test_generate_response_returns_404_when_conversation_not_found() -> None:
