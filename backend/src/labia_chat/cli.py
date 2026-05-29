@@ -19,6 +19,7 @@ from labia_chat.cli_client import (
 )
 
 DEFAULT_API_URL = "http://127.0.0.1:8010"
+DEFAULT_CHAT_TITLE = "CLI chat"
 DOCTOR_HINT = "Sugestão: execute `labia-chat doctor` para diagnosticar o ambiente."
 CLI_HANDLED_ERRORS = (
     AuthError,
@@ -157,10 +158,12 @@ def print_diagnostic(status: str, label: str, detail: str = "") -> None:
 def print_help() -> None:
     """Imprime a ajuda dos comandos disponíveis."""
     print("\nComandos disponíveis:")
-    print("  /help    Mostra esta mensagem de ajuda")
-    print("  /exit    Sai do chat")
-    print("  /history Mostra o histórico da conversa")
-    print("  (qualquer outra linha envia uma mensagem)")
+    print("  /help     Mostra esta mensagem de ajuda")
+    print("  /history  Mostra mensagens recentes da conversa atual")
+    print("  /new      Cria uma nova conversa e muda para ela")
+    print("  /exit     Sai do chat")
+    print("  /quit     Sai do chat")
+    print("  qualquer outra linha envia uma mensagem")
     print()
 
 
@@ -237,6 +240,53 @@ def print_assistant_response(response: dict) -> None:
     """
     content = response.get("content", "")
     print(content)
+
+
+def chat_stream_enabled(args: argparse.Namespace) -> bool:
+    return getattr(args, "stream", True)
+
+
+def chat_title(args: argparse.Namespace) -> str:
+    return getattr(args, "title", None) or DEFAULT_CHAT_TITLE
+
+
+def print_chat_banner(
+    api_url: str,
+    username: str | None,
+    conversation_id: str,
+    stream: bool,
+) -> None:
+    print("labia-chat interactive chat")
+    print(f"API URL: {api_url}")
+    if username:
+        print(f"User: {username}")
+    print(f"Conversation ID: {conversation_id}")
+    print(f"Streaming: {'enabled' if stream else 'disabled'}")
+    print("Use /help for commands and /exit to leave.")
+    print()
+
+
+def create_chat_conversation(
+    client: CLIClient,
+    title: str,
+) -> str:
+    conversation = client.create_conversation(title=title)
+    conversation_id = conversation.get("id", "desconhecido")
+    client.conversation_id = conversation_id
+    return conversation_id
+
+
+def print_chat_history(client: CLIClient, limit: int) -> None:
+    if not client.conversation_id:
+        print("Erro: Nenhuma conversa selecionada.\n")
+        return
+    if limit <= 0:
+        print("Histórico desativado por --show-last 0.\n")
+        return
+
+    messages = client.list_messages(client.conversation_id, limit=limit)
+    print(f"Últimas {min(limit, len(messages))} mensagens:")
+    print_messages(messages, limit)
 
 
 def config_show_command(args: argparse.Namespace) -> int:
@@ -667,155 +717,112 @@ def chat_command(args: argparse.Namespace) -> int:
     """
     api_url = resolve_api_url(args.api_url)
     token = resolve_token(args.token)
+    stream = chat_stream_enabled(args)
 
     client = CLIClient(api_url)
 
     try:
-        # Define o token
         client.set_token(token)
 
-        # Valida o token
         try:
             user_data = client.validate_token()
-            username = user_data.get("username", "usuário")
-            print(f"Autenticado como: {username}\n")
-        except AuthError as e:
-            print_cli_error(e)
-            return 1
-        except CLIPermissionError as e:
-            print_cli_error(e)
-            return 1
-        except ValidationError as e:
-            print_cli_error(e)
-            return 1
-        except BackendError as e:
-            print_cli_error(e)
-            return 1
-        except ConnectionError as e:
+            username = user_data.get("username")
+        except CLI_HANDLED_ERRORS as e:
             print_cli_error(e)
             return 1
 
-        # Verifica se deve resumir uma conversa existente
         conversation_id = args.conversation_id
         show_last = args.show_last
 
         if conversation_id:
-            # Resumir conversa existente
             client.conversation_id = conversation_id
 
             try:
-                # Valida que a conversa existe e pertence ao usuário
                 conversation = client.get_conversation(conversation_id)
-                conv_title = conversation.get("title", "Sem título")
-                print(f"Conversa retomada: {conversation_id}")
-                if conv_title:
-                    print(f"Título: {conv_title}")
-                print()
-            except AuthError as e:
+                conversation_id = conversation.get("id", conversation_id)
+                client.conversation_id = conversation_id
+            except CLI_HANDLED_ERRORS as e:
                 print_cli_error(e)
                 return 1
-            except CLIPermissionError as e:
-                print_cli_error(e)
-                return 1
-            except NotFoundError as e:
-                print_cli_error(e)
-                return 1
-            except ValidationError as e:
-                print_cli_error(e)
-                return 1
-            except BackendError as e:
-                print_cli_error(e)
-                return 1
-            except ConnectionError as e:
-                print_cli_error(e)
-                return 1
-
-            # Se show_last > 0, exibe as últimas mensagens
-            if show_last > 0:
-                try:
-                    messages = client.list_messages(conversation_id, limit=show_last)
-                    print(f"Últimas {min(show_last, len(messages))} mensagens:")
-                    print_messages(messages, show_last)
-                except CLI_HANDLED_ERRORS as e:
-                    print_cli_error(e, "ao carregar histórico")
-                print()
-
-            print("Digite /help para ver os comandos disponíveis.\n")
         else:
-            # Cria nova conversa (comportamento original MVP 2.11)
-            title = args.title if args.title else None
             try:
-                conversation = client.create_conversation(title=title)
-                conv_id = conversation.get("id", "desconhecido")
-                print(f"Nova conversa criada: {conv_id}")
-                print("Digite /help para ver os comandos disponíveis.\n")
-            except AuthError as e:
-                print_cli_error(e)
-                return 1
-            except CLIPermissionError as e:
-                print_cli_error(e)
-                return 1
-            except ValidationError as e:
-                print_cli_error(e)
-                return 1
-            except BackendError as e:
-                print_cli_error(e)
-                return 1
-            except ConnectionError as e:
+                conversation_id = create_chat_conversation(client, chat_title(args))
+            except CLI_HANDLED_ERRORS as e:
                 print_cli_error(e)
                 return 1
 
-        # Loop interativo
+        print_chat_banner(api_url, username, conversation_id, stream)
+
+        if args.conversation_id and show_last > 0:
+            try:
+                print_chat_history(client, show_last)
+                print()
+            except CLI_HANDLED_ERRORS as e:
+                print_cli_error(e, "ao carregar histórico")
+                print()
+
         while True:
             try:
                 user_input = input("Você: ")
             except EOFError:
-                print("\nSaindo...")
+                print("\nAté mais.")
+                break
+            except KeyboardInterrupt:
+                print("\nAté mais.")
                 break
 
-            # Trata comandos
-            if user_input == "/help":
+            # Normalize input by stripping whitespace
+            normalized_input = user_input.strip()
+
+            # Handle slash commands (must be before message generation)
+            if normalized_input == "/help":
                 print_help()
                 continue
 
-            if user_input == "/exit":
-                print("Saindo...")
+            if normalized_input in {"/exit", "/quit"}:
+                print("Até mais.")
                 break
 
-            if user_input == "/history":
-                if not client.conversation_id:
-                    print("Erro: Nenhuma conversa selecionada.\n")
-                    continue
+            if normalized_input == "/history":
                 try:
-                    messages = client.list_messages(
-                        client.conversation_id, limit=show_last
-                    )
-                    print(f"Últimas {min(show_last, len(messages))} mensagens:")
-                    print_messages(messages, show_last)
+                    print_chat_history(client, show_last)
                 except CLI_HANDLED_ERRORS as e:
                     print_cli_error(e, "ao carregar histórico")
                     print()
                 continue
 
-            # Envia mensagem normal
-            if not user_input.strip():
-                # Linha vazia apenas repete o prompt
+            if normalized_input == "/new":
+                try:
+                    conversation_id = create_chat_conversation(
+                        client,
+                        chat_title(args),
+                    )
+                    print(f"Nova conversa: {conversation_id}\n")
+                except CLI_HANDLED_ERRORS as e:
+                    print_cli_error(e, "ao criar nova conversa")
+                    print()
                 continue
 
+            # Skip empty input after stripping
+            if not normalized_input:
+                continue
+
+            # Send message to model (only for non-slash commands)
             try:
-                if getattr(args, "stream", False):
+                if stream:
                     print("Assistente: ", end="", flush=True)
-                    for chunk in client.stream_generate_message(user_input):
-                        print(chunk, end="", flush=True)
-                    print("\n")
+                    print_stream_chunks(client.stream_generate_message(normalized_input))
+                    print()
                 else:
-                    response = client.generate_message(user_input)
+                    response = client.generate_message(normalized_input)
                     assistant_content = response.get("content", "")
                     print(f"Assistente: {assistant_content}\n")
+            except KeyboardInterrupt:
+                print("\nMensagem interrompida. Digite /exit para sair.\n")
             except CLI_HANDLED_ERRORS as e:
                 print_cli_error(e)
                 print()
-                break
+                continue
 
     finally:
         client.close()
