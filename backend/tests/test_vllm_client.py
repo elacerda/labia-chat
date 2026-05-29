@@ -476,6 +476,38 @@ class TestVLLMClient:
             vllm_client._client = original_client
 
     @pytest.mark.asyncio
+    async def test_generate_stream_preserves_whitespace_only_deltas(
+        self, vllm_client
+    ):
+        """Testa que chunks whitespace-only não são filtrados por truthiness."""
+        fake_http = FakeAsyncHTTPClient(base_url="", timeout=0)
+        fake_http.set_stream_response(
+            [
+                'data: {"choices":[{"delta":{"content":" "}}]}',
+                'data: {"choices":[{"delta":{"content":"\\n"}}]}',
+                'data: {"choices":[{"delta":{"content":""}}]}',
+                'data: {"choices":[{"delta":{"content":null}}]}',
+                'data: {"choices":[{"delta":{"content":"\\n\\n"}}]}',
+                "data: [DONE]",
+            ]
+        )
+
+        original_client = vllm_client._client
+        vllm_client._client = fake_http
+
+        try:
+            chunks = [
+                chunk
+                async for chunk in vllm_client.generate_stream(
+                    messages=[{"role": "user", "content": "Hello"}]
+                )
+            ]
+
+            assert chunks == [" ", "\n", "\n\n"]
+        finally:
+            vllm_client._client = original_client
+
+    @pytest.mark.asyncio
     async def test_generate_stream_raises_on_invalid_json(self, vllm_client):
         """Testa erro seguro para chunk SSE com JSON inválido."""
         fake_http = FakeAsyncHTTPClient(base_url="", timeout=0)

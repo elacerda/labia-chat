@@ -1,5 +1,6 @@
 """Testes de integração HTTP para o endpoint /chat/conversations."""
 
+import asyncio
 from uuid import uuid4
 
 import pytest
@@ -1702,6 +1703,58 @@ async def test_generate_response_stream_returns_sse_and_done_event() -> None:
     assert call["content"] == "Test content"
     assert call["model"] == "qwen-coder-next"
     assert fake_service.complete_calls == []
+
+
+@pytest.mark.asyncio
+async def test_generate_response_stream_cancelled_error_propagates() -> None:
+    """Testa que cancelamento do stream não vira evento SSE de erro."""
+    internal_id = str(uuid4())
+    fake_user = FakeChatUser(id=internal_id, adss_id="adss-user-123")
+
+    class CancelledStreamService(FakeChatCompletionService):
+        async def complete_stream(
+            self,
+            conversation_id: str,
+            user_id: str,
+            content: str,
+            model: str | None = None,
+        ):
+            self.complete_stream_calls.append(
+                {
+                    "conversation_id": conversation_id,
+                    "user_id": user_id,
+                    "content": content,
+                    "model": model,
+                }
+            )
+
+            async def events():
+                yield "text", "partial"
+                raise asyncio.CancelledError()
+
+            return events()
+
+    fake_service = CancelledStreamService()
+    fake_persistence = FakeChatPersistenceService()
+    created_conv = fake_persistence.create_conversation_sync(
+        user_id=internal_id,
+        title="Test Conversation",
+        metadata={},
+    )
+
+    response = await generate_response_stream(
+        conversation_id=created_conv.id,
+        payload=GenerateRequest(content="Test content"),
+        chat_user=fake_user,
+        service=fake_service,
+    )
+
+    chunks = []
+    with pytest.raises(asyncio.CancelledError):
+        async for chunk in response.body_iterator:
+            chunks.append(chunk)
+
+    assert chunks == ["data: partial\n\n"]
 
 
 def test_generate_and_generate_stream_routes_are_registered() -> None:

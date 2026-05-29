@@ -1,5 +1,6 @@
 """Testes unitários para o ChatCompletionService."""
 
+import asyncio
 import uuid
 from unittest.mock import AsyncMock, MagicMock
 
@@ -7,6 +8,7 @@ import pytest
 
 from labia_chat.services.chat_completion import (
     ChatCompletionError,
+    ChatCompletionGenerationError,
     ChatCompletionService,
 )
 from labia_chat.services.chat_generation import (
@@ -298,6 +300,131 @@ class TestChatCompletionService:
         assert self.generation_service.generate_stream_calls == [
             [{"role": "user", "content": "Hello"}]
         ]
+
+    @pytest.mark.asyncio
+    async def test_complete_stream_partial_error_does_not_persist_assistant(
+        self,
+    ):
+        """Testa que erro após chunks parciais não persiste assistant."""
+        fake_conversation = MagicMock()
+        fake_conversation.id = self.conversation_id
+        fake_conversation.user_id = self.user_id
+        self.persistence_service.get_conversation_for_user_return = fake_conversation
+
+        fake_user_message = FakeChatMessage(
+            id=str(uuid.uuid4()),
+            conversation_id=self.conversation_id,
+            role="user",
+            content="Hello",
+            sequence_index=0,
+        )
+        self.persistence_service.add_message_for_user_return = fake_user_message
+        self.persistence_service.list_messages_for_user_return = [fake_user_message]
+
+        async def failing_stream(messages):
+            self.generation_service.generate_stream_calls.append(messages)
+            yield "partial"
+            raise ChatGenerationError("raw upstream failure")
+
+        self.generation_service.generate_stream = failing_stream
+
+        stream = await self.service.complete_stream(
+            conversation_id=self.conversation_id,
+            user_id=self.user_id,
+            content="Hello",
+            model="qwen-coder-next",
+        )
+
+        events = []
+        with pytest.raises(
+            ChatCompletionGenerationError, match="Failed to generate response"
+        ):
+            async for event in stream:
+                events.append(event)
+
+        assert events == [("text", "partial")]
+        assert len(self.persistence_service.add_message_for_user_calls) == 1
+        assert self.persistence_service.add_message_for_user_calls[0][2] == "user"
+
+    @pytest.mark.asyncio
+    async def test_complete_stream_cancelled_after_partial_does_not_persist_assistant(
+        self,
+    ):
+        """Testa que cancelamento propaga e não persiste assistant parcial."""
+        fake_conversation = MagicMock()
+        fake_conversation.id = self.conversation_id
+        fake_conversation.user_id = self.user_id
+        self.persistence_service.get_conversation_for_user_return = fake_conversation
+
+        fake_user_message = FakeChatMessage(
+            id=str(uuid.uuid4()),
+            conversation_id=self.conversation_id,
+            role="user",
+            content="Hello",
+            sequence_index=0,
+        )
+        self.persistence_service.add_message_for_user_return = fake_user_message
+        self.persistence_service.list_messages_for_user_return = [fake_user_message]
+
+        async def cancelled_stream(messages):
+            self.generation_service.generate_stream_calls.append(messages)
+            yield "partial"
+            raise asyncio.CancelledError()
+
+        self.generation_service.generate_stream = cancelled_stream
+
+        stream = await self.service.complete_stream(
+            conversation_id=self.conversation_id,
+            user_id=self.user_id,
+            content="Hello",
+            model="qwen-coder-next",
+        )
+
+        events = []
+        with pytest.raises(asyncio.CancelledError):
+            async for event in stream:
+                events.append(event)
+
+        assert events == [("text", "partial")]
+        assert len(self.persistence_service.add_message_for_user_calls) == 1
+        assert self.persistence_service.add_message_for_user_calls[0][2] == "user"
+
+    @pytest.mark.asyncio
+    async def test_complete_stream_empty_success_does_not_persist_assistant(self):
+        """Testa que stream bem-sucedido vazio é tratado como falha."""
+        fake_conversation = MagicMock()
+        fake_conversation.id = self.conversation_id
+        fake_conversation.user_id = self.user_id
+        self.persistence_service.get_conversation_for_user_return = fake_conversation
+
+        fake_user_message = FakeChatMessage(
+            id=str(uuid.uuid4()),
+            conversation_id=self.conversation_id,
+            role="user",
+            content="Hello",
+            sequence_index=0,
+        )
+        self.persistence_service.add_message_for_user_return = fake_user_message
+        self.persistence_service.list_messages_for_user_return = [fake_user_message]
+        self.generation_service.generate_stream_chunks = []
+
+        stream = await self.service.complete_stream(
+            conversation_id=self.conversation_id,
+            user_id=self.user_id,
+            content="Hello",
+            model="qwen-coder-next",
+        )
+
+        events = []
+        with pytest.raises(
+            ChatCompletionGenerationError, match="Failed to generate response"
+        ):
+            async for event in stream:
+                events.append(event)
+
+        assert events == []
+        assert len(self.persistence_service.add_message_for_user_calls) == 1
+        assert self.persistence_service.add_message_for_user_calls[0][2] == "user"
 
     @pytest.mark.asyncio
     async def test_complete_multiple_messages_in_history(self):

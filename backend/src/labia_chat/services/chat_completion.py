@@ -211,6 +211,9 @@ class ChatCompletionService:
                 ) from exc
 
             response_text = "".join(response_chunks)
+            if response_text == "":
+                raise ChatCompletionGenerationError("Failed to generate response")
+
             assistant_message = await self.persistence_service.add_message_for_user(
                 conversation_id=conversation_id,
                 user_id=user_id,

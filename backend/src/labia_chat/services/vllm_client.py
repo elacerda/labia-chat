@@ -162,7 +162,7 @@ class VLLMClient:
         """
         Stream a response using the OpenAI-compatible vLLM chat completions API.
 
-        Yields only non-empty text deltas from choices[].delta.content.
+        Yields choices[].delta.content strings, preserving whitespace-only chunks.
         """
         if not self._client:
             raise RuntimeError("VLLMClient must be used as async context manager")
@@ -212,7 +212,7 @@ class VLLMClient:
 
     @staticmethod
     def _extract_stream_text_deltas(chunk: dict) -> list[str]:
-        """Extract non-empty choices[].delta.content strings from a stream chunk."""
+        """Extract choices[].delta.content strings from a stream chunk."""
         if "choices" not in chunk:
             raise VLLMClientError("vLLM stream chunk missing 'choices' field")
 

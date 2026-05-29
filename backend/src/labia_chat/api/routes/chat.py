@@ -1,5 +1,6 @@
 """Endpoint de chat para conversas e mensagens."""
 
+import asyncio
 from collections.abc import AsyncIterator
 from uuid import UUID
 
@@ -471,6 +472,8 @@ async def generate_response_stream(
                 {"detail": "Failed to generate response"},
                 event="error",
             )
+        except asyncio.CancelledError:
+            raise
         except Exception:
             yield sse_json_event(
                 {"detail": "Failed to generate response"},
