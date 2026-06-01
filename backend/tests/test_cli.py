@@ -500,10 +500,10 @@ class TestMain:
         output = capsys.readouterr().out
         assert exc_info.value.code == 0
         assert "Exemplos:" in output
-        assert "labia-chat config show" in output
+        assert "labia-chat" in output
+        assert "labia-chat --last" in output
+        assert "labia-chat config init" in output
         assert "labia-chat doctor" in output
-        assert "labia-chat conversations list" in output
-        assert 'labia-chat chat send <conversation-id> "Olá"' in output
 
     def test_main_version_uses_resolved_version(self, capsys) -> None:
         """Testa que --version imprime a versão resolvida."""
@@ -2207,6 +2207,126 @@ class TestDefaultInteractiveEntrypoint:
             expected_resume_last=True,
             expected_command="chat",
         )
+
+
+class TestConfigSourceReporting:
+    """Testes de report de origem da configuração."""
+
+    def test_doctor_reports_env_source_when_env_set(self, capsys) -> None:
+        """Testa doctor com origem env."""
+        args = argparse.Namespace(
+            api_url=None,
+            token=None,
+            with_model=False,
+        )
+
+        with patch.dict(
+            "os.environ", {"LABIA_CHAT_API_URL": "http://env.com:8010"}, clear=True
+        ):
+            with patch("labia_chat.cli.CLIClient") as MockClient:
+                mock_client = MagicMock()
+                MockClient.return_value = mock_client
+                mock_client.health_check.return_value = {"status": "ok"}
+
+                result = doctor_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        assert "API URL: http://env.com:8010 (source: env)" in output
+
+    def test_doctor_reports_argument_source_when_cli_flag_set(self, capsys) -> None:
+        """Testa doctor com origem argument."""
+        args = argparse.Namespace(
+            api_url="http://cli-flag.com:8010",
+            token=None,
+            with_model=False,
+        )
+
+        with patch("labia_chat.cli.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+            mock_client.health_check.return_value = {"status": "ok"}
+
+            result = doctor_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        assert "API URL: http://cli-flag.com:8010 (source: argument)" in output
+
+    def test_doctor_reports_default_source_when_no_config_no_env(self, capsys) -> None:
+        """Testa doctor com origem default."""
+        args = argparse.Namespace(
+            api_url=None,
+            token=None,
+            with_model=False,
+        )
+
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("labia_chat.cli.CLIClient") as MockClient:
+                mock_client = MagicMock()
+                MockClient.return_value = mock_client
+                mock_client.health_check.return_value = {"status": "ok"}
+
+                result = doctor_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        assert "API URL: http://127.0.0.1:8010 (source: default)" in output
+
+    def test_config_show_reports_config_source_when_config_exists(
+        self, tmp_path, monkeypatch, capsys
+    ) -> None:
+        """Testa config show com origem config."""
+        from labia_chat.cli_config import save_config
+
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        monkeypatch.delenv("LABIA_CHAT_API_URL", raising=False)
+
+        save_config(api_url="http://127.0.0.1:8010")
+
+        args = argparse.Namespace(
+            api_url=None,
+            token=None,
+        )
+
+        result = config_show_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        assert "URL da API: http://127.0.0.1:8010" in output
+        assert "Origem da URL da API: config" in output
+
+    def test_config_show_reports_env_source_when_env_set(self, capsys) -> None:
+        """Testa config show com origem env."""
+        args = argparse.Namespace(
+            api_url=None,
+            token=None,
+        )
+
+        with patch.dict(
+            "os.environ", {"LABIA_CHAT_API_URL": "http://env.com:8010"}, clear=True
+        ):
+            result = config_show_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        assert "Origem da URL da API: env" in output
+
+    def test_config_show_reports_default_source_when_no_config_no_env(
+        self, capsys
+    ) -> None:
+        """Testa config show com origem default."""
+        args = argparse.Namespace(
+            api_url=None,
+            token=None,
+        )
+
+        with patch.dict("os.environ", {}, clear=True):
+            result = config_show_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        assert "Origem da URL da API: default" in output
 
 
 class TestConfigInitCommand:

@@ -56,10 +56,10 @@ CLI_HANDLED_ERRORS = (
     ConnectionError,
 )
 HELP_EXAMPLES = """Exemplos:
-  labia-chat config show
+  labia-chat
+  labia-chat --last
+  labia-chat config init
   labia-chat doctor
-  labia-chat conversations list
-  labia-chat chat send <conversation-id> "Olá"
 """
 
 
@@ -432,8 +432,8 @@ def doctor_command(args: argparse.Namespace) -> int:
     Returns:
         Código de saída.
     """
-    api_url, api_source = resolve_api_url_with_source(args.api_url)
-    token, token_source = resolve_token_optional_with_source(args.token)
+    api_url, api_source = resolve_api_url_with_source_config(args.api_url)
+    token, token_source = resolve_token_optional_with_source_config(args.token)
     has_failure = False
 
     print("labia-chat doctor")
@@ -997,7 +997,10 @@ def main() -> int:
     parser.add_argument(
         "--api-url",
         type=str,
-        help="URL do backend (padrão: http://127.0.0.1:8010 ou LABIA_CHAT_API_URL)",
+        help=(
+            "URL do backend (padrão: http://127.0.0.1:8010, config ou "
+            "LABIA_CHAT_API_URL)"
+        ),
     )
     parser.add_argument(
         "--token",
@@ -1028,7 +1031,10 @@ def main() -> int:
         "--show-last",
         type=int,
         default=10,
-        help="Número de mensagens a exibir no histórico (padrão: 10)",
+        help=(
+            "Número de mensagens a exibir no histórico "
+            "(padrão: 10, config ou --show-last-default)"
+        ),
     )
     chat_stream_group = parser.add_mutually_exclusive_group()
     chat_stream_group.add_argument(
