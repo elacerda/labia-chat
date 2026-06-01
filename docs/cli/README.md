@@ -5,6 +5,9 @@
 Install the backend package, then point the CLI at the backend and provide an
 AI-Scope token:
 
+> **Nota:** O smoke validation (`bash backend/scripts/smoke_cli.sh`) cria uma
+> configuração local temporária e valida que o arquivo não contém segredos.
+
 ```bash
 cd backend
 python -m pip install -e ".[dev]"
