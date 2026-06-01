@@ -11,6 +11,7 @@ from labia_chat.cli import (
     auth_me_command,
     chat_command,
     chat_send_command,
+    config_init_command,
     config_show_command,
     conversations_create_command,
     conversations_list_command,
@@ -102,8 +103,8 @@ class TestConfigShowCommand:
         output = capsys.readouterr().out
         assert result == 0
         assert "super-secret-token" not in output
-        assert "Token status: configured" in output
-        assert "Token source: argument" in output
+        assert "Status do token: configurado" in output
+        assert "Origem do token: argument" in output
 
     def test_config_show_reports_missing_token(self, capsys) -> None:
         """Testa que token ausente é reportado sem prompt."""
@@ -114,11 +115,11 @@ class TestConfigShowCommand:
 
         output = capsys.readouterr().out
         assert result == 0
-        assert "API URL: http://127.0.0.1:8010" in output
-        assert "API URL source: default" in output
-        assert "Token status: missing" in output
-        assert "Token source: missing" in output
-        assert "Streaming default: enabled" in output
+        assert "URL da API: http://127.0.0.1:8010" in output
+        assert "Origem da URL da API: default" in output
+        assert "Status do token: ausente" in output
+        assert "Origem do token: ausente" in output
+        assert "Streaming padrão: habilitado" in output
 
     def test_config_show_reports_env_token_configured(self, capsys) -> None:
         """Testa que token de env é reportado como configurado."""
@@ -130,8 +131,8 @@ class TestConfigShowCommand:
         output = capsys.readouterr().out
         assert result == 0
         assert "env-secret" not in output
-        assert "Token status: configured" in output
-        assert "Token source: env" in output
+        assert "Status do token: configurado" in output
+        assert "Origem do token: env" in output
 
 
 class TestDoctorCommand:
@@ -2206,3 +2207,96 @@ class TestDefaultInteractiveEntrypoint:
             expected_resume_last=True,
             expected_command="chat",
         )
+
+
+class TestConfigInitCommand:
+    """Testes do comando 'config init'."""
+
+    def test_config_init_saves_values(self, tmp_path, capsys) -> None:
+        """Testa que config init salva os valores no arquivo."""
+
+        # Usa um diretório temporário para o config
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        config_file = config_dir / "config.toml"
+
+        with patch("labia_chat.cli_config.get_config_path", return_value=config_file):
+            with patch("labia_chat.cli_config.get_config_dir", return_value=config_dir):
+                args = argparse.Namespace(
+                    api_url="http://custom-api.com:8010",
+                    streaming_default="true",
+                    show_last_default=20,
+                )
+
+                result = config_init_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        assert "Configuração salva com sucesso" in output
+        assert str(config_file) in output
+
+        # Verifica que o arquivo foi criado com os valores corretos
+        content = config_file.read_text()
+        assert 'api_url = "http://custom-api.com:8010"' in content
+        assert "streaming_default = true" in content
+        assert "show_last_default = 20" in content
+
+    def test_config_init_partial_update(self, tmp_path, capsys) -> None:
+        """Testa que config init atualiza apenas valores fornecidos."""
+        from labia_chat.cli_config import save_config
+
+        # Usa um diretório temporário para o config
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        config_file = config_dir / "config.toml"
+
+        # Primeiro, salva uma configuração inicial
+        with patch("labia_chat.cli_config.get_config_path", return_value=config_file):
+            with patch("labia_chat.cli_config.get_config_dir", return_value=config_dir):
+                save_config(
+                    api_url="http://initial.com:8010",
+                    streaming_default=True,
+                    show_last_default=10,
+                )
+
+                # Agora atualiza apenas o streaming_default
+                args = argparse.Namespace(
+                    api_url=None,
+                    streaming_default="false",
+                    show_last_default=None,
+                )
+
+                result = config_init_command(args)
+
+        assert result == 0
+
+        # Verifica que apenas streaming_default foi atualizado
+        content = config_file.read_text()
+        assert 'api_url = "http://initial.com:8010"' in content  # Mantido
+        assert "streaming_default = false" in content  # Atualizado
+        assert "show_last_default = 10" in content  # Mantido
+
+    def test_config_init_never_saves_token(self, tmp_path, capsys) -> None:
+        """Testa que config init nunca salva token."""
+
+        # Usa um diretório temporário para o config
+        config_dir = tmp_path / "config"
+        config_dir.mkdir()
+        config_file = config_dir / "config.toml"
+
+        with patch("labia_chat.cli_config.get_config_path", return_value=config_file):
+            with patch("labia_chat.cli_config.get_config_dir", return_value=config_dir):
+                # Simula que args tem um token (mas ele não deve ser salvo)
+                args = argparse.Namespace(
+                    api_url="http://custom-api.com:8010",
+                    streaming_default="true",
+                    show_last_default=20,
+                )
+
+                result = config_init_command(args)
+
+        assert result == 0
+
+        # Verifica que token não está no arquivo
+        content = config_file.read_text()
+        assert "token" not in content.lower()

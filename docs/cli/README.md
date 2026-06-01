@@ -21,6 +21,26 @@ labia-chat --version
 labia-chat config show
 ```
 
+Initialize or update local non-sensitive configuration:
+
+```bash
+labia-chat config init [--api-url <url>] [--streaming-default <true|false>] [--show-last-default <n>]
+```
+
+The local config is stored at:
+- `$XDG_CONFIG_HOME/labia-chat/config.toml` when `XDG_CONFIG_HOME` is set;
+- otherwise `~/.config/labia-chat/config.toml`.
+
+Persisted keys:
+- `api_url` — backend URL
+- `streaming_default` — enable/disable streaming by default
+- `show_last_default` — number of messages to show in history
+
+Tokens and secrets are **never** saved to the local config file.
+
+Precedence order (highest to lowest):
+CLI arguments > environment variables > local config > defaults.
+
 Run diagnostics:
 
 ```bash

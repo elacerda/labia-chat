@@ -17,6 +17,18 @@ from labia_chat.cli_client import (
 from labia_chat.cli_client import (
     PermissionError as CLIPermissionError,
 )
+from labia_chat.cli_config import (
+    resolve_api_url_with_source as resolve_api_url_with_source_config,
+)
+from labia_chat.cli_config import (
+    resolve_show_last_default_with_source as _resolve_show_last,
+)
+from labia_chat.cli_config import (
+    resolve_streaming_default_with_source as _resolve_streaming,
+)
+from labia_chat.cli_config import (
+    resolve_token_optional_with_source as resolve_token_optional_with_source_config,
+)
 from labia_chat.cli_ui import (
     print_assistant_message,
     print_banner,
@@ -346,16 +358,67 @@ def config_show_command(args: argparse.Namespace) -> int:
     Returns:
         Código de saída.
     """
-    api_url, api_source = resolve_api_url_with_source(args.api_url)
-    token, token_source = resolve_token_optional_with_source(args.token)
-    token_status = "configured" if token else "missing"
+    # Resolve API URL com origem (CLI args > env > config > default)
+    api_url, api_source = resolve_api_url_with_source_config(args.api_url)
 
-    print("CLI configuration")
-    print(f"API URL: {api_url}")
-    print(f"API URL source: {api_source}")
-    print(f"Token status: {token_status}")
-    print(f"Token source: {token_source}")
-    print("Streaming default: enabled")
+    # Resolve streaming default com origem
+    streaming_default, streaming_source = _resolve_streaming(None)
+
+    # Resolve show_last default com origem
+    show_last_default, show_last_source = _resolve_show_last(None)
+
+    # Resolve token com origem (nunca do config por segurança)
+    token, token_source = resolve_token_optional_with_source_config(args.token)
+    token_status = "configurado" if token else "ausente"
+
+    print("Configuração do CLI")
+    print(f"URL da API: {api_url}")
+    print(f"Origem da URL da API: {api_source}")
+    print(f"Streaming padrão: {'habilitado' if streaming_default else 'desabilitado'}")
+    print(f"Origem do streaming padrão: {streaming_source}")
+    print(f"Mensagens recentes padrão: {show_last_default}")
+    print(f"Origem das mensagens recentes padrão: {show_last_source}")
+    token_source_display = "ausente" if token_source == "missing" else token_source
+    print(f"Status do token: {token_status}")
+    print(f"Origem do token: {token_source_display}")
+    return 0
+
+
+def config_init_command(args: argparse.Namespace) -> int:
+    """
+    Inicializa ou atualiza a configuração local.
+
+    Args:
+        args: Argumentos da linha de comando.
+
+    Returns:
+        Código de saída.
+    """
+    from labia_chat.cli_config import get_config_path, save_config
+
+    # Converte valores de string para tipos apropriados
+    # argparse usa type=str para --streaming-default, então precisamos converter
+    streaming_default = args.streaming_default
+    if isinstance(streaming_default, str):
+        streaming_default = streaming_default.lower() == "true"
+
+    show_last_default = args.show_last_default
+    if isinstance(show_last_default, str):
+        # Tenta converter para int, se falhar, usa None
+        try:
+            show_last_default = int(show_last_default)
+        except ValueError:
+            show_last_default = None
+
+    # Salva apenas os valores fornecidos (não salva token por segurança)
+    save_config(
+        api_url=args.api_url,
+        streaming_default=streaming_default,
+        show_last_default=show_last_default,
+    )
+
+    print("Configuração salva com sucesso.")
+    print(f"Arquivo: {get_config_path()}")
     return 0
 
 
@@ -987,11 +1050,35 @@ def main() -> int:
     # Comando config
     config_parser = subparsers.add_parser(
         "config",
-        help="Mostra configuração resolvida",
+        help="Gerencia configuração local",
     )
     config_subparsers = config_parser.add_subparsers(
         dest="config_command", help="Comandos disponíveis"
     )
+
+    # config init
+    config_init_parser = config_subparsers.add_parser(
+        "init",
+        help="Inicializa ou atualiza a configuração local",
+    )
+    config_init_parser.add_argument(
+        "--api-url",
+        type=str,
+        help="URL do backend (padrão: http://127.0.0.1:8010)",
+    )
+    config_init_parser.add_argument(
+        "--streaming-default",
+        type=str,
+        choices=["true", "false"],
+        help="Habilitar streaming por padrão (true/false)",
+    )
+    config_init_parser.add_argument(
+        "--show-last-default",
+        type=int,
+        help="Número de mensagens a exibir por padrão",
+    )
+
+    # config show
     config_show_parser = config_subparsers.add_parser(
         "show",
         help="Exibe configuração resolvida do CLI",
@@ -1263,6 +1350,8 @@ def main() -> int:
     if args.command == "config":
         if args.config_command == "show":
             return config_show_command(args)
+        elif args.config_command == "init":
+            return config_init_command(args)
         else:
             config_parser.print_help()
             return 0
