@@ -78,6 +78,7 @@ read -rsp "AI-Scope token: " LABIA_CHAT_TOKEN
 export LABIA_CHAT_TOKEN
 echo
 
+labia-chat config init [--api-url <url>] [--streaming-default <true|false>] [--show-last-default <n>]
 labia-chat config show
 labia-chat doctor
 labia-chat conversations list
