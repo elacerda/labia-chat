@@ -38,12 +38,15 @@ Valida:
 2. `labia-chat auth me`;
 3. `labia-chat conversations create`;
 4. `labia-chat conversations list --limit 5 --offset 0`;
-5. `labia-chat messages list <conversation-id> --limit 10 --offset 0`.
+5. `labia-chat messages list <conversation-id> --limit 10 --offset 0`;
+6. `labia-chat config init` e `labia-chat config show` (configuração local não sensível);
+7. arquivo de configuração existe e não contém segredos (token, Bearer, Authorization, etc).
 
 Observação:
 
 - para conversa recém-criada, `Nenhuma mensagem ainda.` é saída esperada;
-- esse caso deve ser tratado como sucesso se o comando sair com exit code `0`.
+- esse caso deve ser tratado como sucesso se o comando sair com exit code `0`;
+- o script cria um diretório temporário para configuração e o remove ao final.
 
 ## Smoke com modelo
 
@@ -53,9 +56,9 @@ bash backend/scripts/smoke_cli.sh --with-model
 
 Valida também:
 
-6. `labia-chat chat send <conversation-id> "Responda apenas com: SMOKE_OK"`;
-7. `labia-chat messages list <conversation-id> --limit 10 --offset 0`;
-8. `POST /chat/model/ping`.
+8. `labia-chat chat send <conversation-id> "Responda apenas com: SMOKE_OK"`;
+9. `labia-chat messages list <conversation-id> --limit 10 --offset 0`;
+10. `POST /chat/model/ping`.
 
 Critério correto:
 
@@ -86,3 +89,11 @@ Summary: All checks passed
 bash backend/scripts/smoke_cli.sh --api-url http://127.0.0.1:8010
 bash backend/scripts/smoke_cli.sh --api-url http://127.0.0.1:8010 --with-model
 ```
+
+## Configuração local (não sensível)
+
+O smoke validation agora cria um diretório temporário para configuração do CLI e valida:
+
+- `labia-chat config init` salva apenas valores não sensíveis (`api_url`, `streaming_default`, `show_last_default`);
+- `labia-chat config show` exibe a configuração resolvida sem expor tokens;
+- o arquivo `config.toml` não deve conter chaves como `token`, `Bearer`, `Authorization`, `LABIA_CHAT_TOKEN`, `AI_SCOPE_ACCESS_TOKEN`, `VLLM_API_KEY` ou `DATABASE_URL`.

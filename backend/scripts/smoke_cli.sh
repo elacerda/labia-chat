@@ -58,7 +58,7 @@ if [[ -z "${LABIA_CHAT_TOKEN:-}" ]]; then
     exit 1
 fi
 
-# Export API_URL for CLI
+# Export API_URL for CLI (will be unset later to test local config fallback)
 export LABIA_CHAT_API_URL="$API_URL"
 
 # Colors for output
@@ -95,6 +95,97 @@ echo "=============================================="
 echo "API URL: $API_URL"
 echo "Token:   [SET - not shown]"
 echo "With Model: $WITH_MODEL"
+echo "=============================================="
+echo ""
+
+# Step 0: Config local validation (new feature)
+echo "--- Step 0: Config Local Validation ---"
+
+# Create temporary config directory
+TMP_CONFIG_HOME="$(mktemp -d)"
+export XDG_CONFIG_HOME="$TMP_CONFIG_HOME"
+echo "Temp config directory: $XDG_CONFIG_HOME"
+
+# Cleanup on exit
+cleanup_config() {
+    if [[ -d "$TMP_CONFIG_HOME" ]]; then
+        rm -rf "$TMP_CONFIG_HOME"
+    fi
+}
+trap cleanup_config EXIT
+
+# Initialize config with local non-sensitive values
+echo "Inicializando configuração local..."
+CONFIG_OUTPUT=$(labia-chat config init --api-url "$API_URL" --streaming-default true --show-last-default 5 2>&1) || true
+if echo "$CONFIG_OUTPUT" | grep -q "Configuração salva com sucesso"; then
+    print_result "labia-chat config init" "PASS"
+    echo "  Output: $(echo "$CONFIG_OUTPUT" | head -n1)"
+else
+    print_result "labia-chat config init" "FAIL" "$CONFIG_OUTPUT"
+    echo ""
+    echo "Cannot proceed without config init. Aborting."
+    exit 1
+fi
+
+# Show config to verify it was created
+echo ""
+echo "Exibindo configuração local..."
+SHOW_OUTPUT=$(labia-chat config show 2>&1) || true
+if echo "$SHOW_OUTPUT" | grep -q "Configuração do CLI"; then
+    print_result "labia-chat config show" "PASS"
+    echo "  Output preview: $(echo "$SHOW_OUTPUT" | head -n2 | tail -n1)"
+else
+    print_result "labia-chat config show" "FAIL" "$SHOW_OUTPUT"
+fi
+
+# Verify config file exists
+CONFIG_FILE="$XDG_CONFIG_HOME/labia-chat/config.toml"
+echo ""
+echo "Verificando arquivo de configuração: $CONFIG_FILE"
+if [[ -f "$CONFIG_FILE" ]]; then
+    print_result "Config file exists" "PASS"
+    echo "  Path: $CONFIG_FILE"
+else
+    print_result "Config file exists" "FAIL" "File not found: $CONFIG_FILE"
+    echo ""
+    echo "Cannot proceed without config file. Aborting."
+    exit 1
+fi
+
+# Verify config file does NOT contain secrets or token-like keys/values
+echo ""
+echo "--- Verificação de segredos no config ---"
+SECRETS_FOUND=0
+SECRET_PATTERNS=(
+    "token"
+    "Bearer"
+    "Authorization"
+    "LABIA_CHAT_TOKEN"
+    "AI_SCOPE_ACCESS_TOKEN"
+    "VLLM_API_KEY"
+    "DATABASE_URL"
+)
+
+for pattern in "${SECRET_PATTERNS[@]}"; do
+    if grep -qi "$pattern" "$CONFIG_FILE" 2>/dev/null; then
+        echo -e "${RED}✗ FAIL${NC}: Padrão de segredo encontrado no config: $pattern"
+        SECRETS_FOUND=1
+    fi
+done
+
+if [[ $SECRETS_FOUND -eq 0 ]]; then
+    print_result "Config file has no secrets" "PASS"
+else
+    print_result "Config file has no secrets" "FAIL" "Secret patterns found in config file"
+fi
+
+# Unset LABIA_CHAT_API_URL to test local config fallback
+echo ""
+echo "Desabilitando LABIA_CHAT_API_URL para testar fallback local..."
+unset LABIA_CHAT_API_URL
+
+echo ""
+echo "=============================================="
 echo "=============================================="
 echo ""
 

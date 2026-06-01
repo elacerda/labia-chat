@@ -139,6 +139,10 @@ Smoke operacional:
     bash backend/scripts/smoke_cli.sh
     bash backend/scripts/smoke_cli.sh --with-model
 
+O smoke validation agora valida também:
+- criação de configuração local temporária (não sensível);
+- ausência de segredos no arquivo de configuração.
+
 ## Portas locais adotadas
 
 - `8000` — vLLM local OpenAI-compatible.
