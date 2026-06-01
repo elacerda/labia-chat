@@ -325,10 +325,10 @@ class TestChatCommand:
         assert result == 0
         mock_client.create_conversation.assert_called_once_with(title="CLI chat")
         assert "API URL: http://example.com" in output
-        assert "User: testuser" in output
-        assert "Conversation ID: conv-123" in output
-        assert "Streaming: enabled" in output
-        assert "Use /help for commands and /exit to leave." in output
+        assert "Usuário: testuser" in output
+        assert "ID da conversa: conv-123" in output
+        assert "Streaming: ativo" in output
+        assert "Digite /help para comandos" in output
 
     def test_help_command_prints_internal_commands(self, capsys) -> None:
         """Testa que /help lista comandos internos."""
@@ -420,7 +420,8 @@ class TestChatCommand:
         assert mock_client.create_conversation.call_count == 2
         mock_client.generate_message.assert_called_once_with("Hello")
         assert mock_client.conversation_id == "conv-2"
-        assert "Nova conversa: conv-2" in output
+        assert "Nova conversa" in output
+        assert "conv-2" in output
 
     def test_exit_after_new_exits_cleanly(self, capsys) -> None:
         """Testa que /exit após /new encerra sem enviar ao modelo."""
@@ -456,7 +457,8 @@ class TestChatCommand:
         assert mock_client.create_conversation.call_count == 2
         # generate_message should NOT be called since /exit was used
         mock_client.generate_message.assert_not_called()
-        assert "Nova conversa: conv-2" in output
+        assert "Nova conversa" in output
+        assert "conv-2" in output
         assert "Até mais." in output
 
     def test_eof_exits_cleanly(self, capsys) -> None:

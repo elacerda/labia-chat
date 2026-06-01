@@ -17,6 +17,20 @@ from labia_chat.cli_client import (
 from labia_chat.cli_client import (
     PermissionError as CLIPermissionError,
 )
+from labia_chat.cli_ui import (
+    print_assistant_message,
+    print_banner,
+    print_error,
+    print_history_header,
+    print_info,
+    print_new_conversation_success,
+    print_streaming_start,
+    print_user_label,
+    print_user_message,
+)
+from labia_chat.cli_ui import (
+    print_help as print_help_ui,
+)
 
 DEFAULT_API_URL = "http://127.0.0.1:8010"
 DEFAULT_CHAT_TITLE = "CLI chat"
@@ -157,14 +171,7 @@ def print_diagnostic(status: str, label: str, detail: str = "") -> None:
 
 def print_help() -> None:
     """Imprime a ajuda dos comandos disponíveis."""
-    print("\nComandos disponíveis:")
-    print("  /help     Mostra esta mensagem de ajuda")
-    print("  /history  Mostra mensagens recentes da conversa atual")
-    print("  /new      Cria uma nova conversa e muda para ela")
-    print("  /exit     Sai do chat")
-    print("  /quit     Sai do chat")
-    print("  qualquer outra linha envia uma mensagem")
-    print()
+    print_help_ui()
 
 
 def print_messages(messages: list[dict], show_last: int) -> None:
@@ -176,7 +183,7 @@ def print_messages(messages: list[dict], show_last: int) -> None:
         show_last: Número de mensagens a exibir.
     """
     if not messages:
-        print("Nenhuma mensagem ainda.")
+        print_info("Nenhuma mensagem ainda.")
         return
 
     # Pega as últimas N mensagens
@@ -187,9 +194,9 @@ def print_messages(messages: list[dict], show_last: int) -> None:
         content = msg.get("content", "")
         # Formata a role para exibição
         if role == "user":
-            print(f"Você: {content}")
+            print_user_message(content)
         elif role == "assistant":
-            print(f"Assistente: {content}")
+            print_assistant_message(content)
         else:
             print(f"[{role}]: {content}")
         print()
@@ -256,14 +263,7 @@ def print_chat_banner(
     conversation_id: str,
     stream: bool,
 ) -> None:
-    print("labia-chat interactive chat")
-    print(f"API URL: {api_url}")
-    if username:
-        print(f"User: {username}")
-    print(f"Conversation ID: {conversation_id}")
-    print(f"Streaming: {'enabled' if stream else 'disabled'}")
-    print("Use /help for commands and /exit to leave.")
-    print()
+    print_banner(api_url, username, conversation_id, stream)
 
 
 def create_chat_conversation(
@@ -278,14 +278,18 @@ def create_chat_conversation(
 
 def print_chat_history(client: CLIClient, limit: int) -> None:
     if not client.conversation_id:
-        print("Erro: Nenhuma conversa selecionada.\n")
+        print_error("Nenhuma conversa selecionada.")
         return
     if limit <= 0:
-        print("Histórico desativado por --show-last 0.\n")
+        print_info("Histórico desativado por --show-last 0.")
         return
 
     messages = client.list_messages(client.conversation_id, limit=limit)
-    print(f"Últimas {min(limit, len(messages))} mensagens:")
+    if not messages:
+        print_info("Nenhuma mensagem ainda.")
+        return
+
+    print_history_header(min(limit, len(messages)))
     print_messages(messages, limit)
 
 
@@ -763,7 +767,8 @@ def chat_command(args: argparse.Namespace) -> int:
 
         while True:
             try:
-                user_input = input("Você: ")
+                print_user_label()
+                user_input = input()
             except EOFError:
                 print("\nAté mais.")
                 break
@@ -797,7 +802,7 @@ def chat_command(args: argparse.Namespace) -> int:
                         client,
                         chat_title(args),
                     )
-                    print(f"Nova conversa: {conversation_id}\n")
+                    print_new_conversation_success(conversation_id, chat_title(args))
                 except CLI_HANDLED_ERRORS as e:
                     print_cli_error(e, "ao criar nova conversa")
                     print()
@@ -810,13 +815,14 @@ def chat_command(args: argparse.Namespace) -> int:
             # Send message to model (only for non-slash commands)
             try:
                 if stream:
-                    print("Assistente: ", end="", flush=True)
+                    print_streaming_start()
                     print_stream_chunks(client.stream_generate_message(normalized_input))
                     print()
                 else:
                     response = client.generate_message(normalized_input)
                     assistant_content = response.get("content", "")
-                    print(f"Assistente: {assistant_content}\n")
+                    print_assistant_message(assistant_content)
+                    print()
             except KeyboardInterrupt:
                 print("\nMensagem interrompida. Digite /exit para sair.\n")
             except CLI_HANDLED_ERRORS as e:
