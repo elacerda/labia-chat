@@ -80,6 +80,25 @@ Inside the chat:
 - `/new`: create a new conversation and switch to it.
 - `/exit` or `/quit`: leave the chat cleanly.
 
+### Resume da conversa mais recente
+
+Para retomar sua conversa mais recente:
+
+```bash
+labia-chat --last
+labia-chat --resume-last
+labia-chat chat --last
+labia-chat chat --resume-last
+```
+
+Se não houver conversas anteriores, uma nova conversa será criada automaticamente.
+
+Para retomar uma conversa específica pelo ID:
+
+```bash
+labia-chat --conversation-id <id> --show-last 5
+```
+
 Use `--no-stream` to call the non-streaming endpoint:
 
 ```bash

@@ -2059,3 +2059,150 @@ class TestDefaultInteractiveEntrypoint:
 
                 assert result == 0
                 mock_config.assert_called_once()
+
+    def test_chat_command_resumes_most_recent_conversation_with_resume_last(
+        self,
+    ) -> None:
+        """Testa retoma da conversa mais recente com --resume-last."""
+        with patch("labia_chat.cli.resolve_api_url", return_value="http://example.com"):
+            with patch("labia_chat.cli.resolve_token", return_value="test-token"):
+                with patch("labia_chat.cli.CLIClient") as MockClient:
+                    mock_client = MockClient.return_value
+                    mock_client.validate_token.return_value = {"username": "testuser"}
+                    mock_client.list_conversations.return_value = [
+                        {"id": "conv-123", "title": "Última conversa"}
+                    ]
+                    mock_client.list_messages.return_value = []
+
+                    with patch("sys.argv", ["labia-chat", "chat", "--resume-last"]):
+                        with patch("labia_chat.cli.input", return_value="/exit"):
+                            result = main()
+
+        assert result == 0
+        mock_client.list_conversations.assert_called_once_with(limit=1, offset=0)
+        assert mock_client.conversation_id == "conv-123"
+
+    def test_chat_command_resumes_most_recent_conversation_with_last(self) -> None:
+        """Testa retoma da conversa mais recente com --last."""
+        with patch("labia_chat.cli.resolve_api_url", return_value="http://example.com"):
+            with patch("labia_chat.cli.resolve_token", return_value="test-token"):
+                with patch("labia_chat.cli.CLIClient") as MockClient:
+                    mock_client = MockClient.return_value
+                    mock_client.validate_token.return_value = {"username": "testuser"}
+                    mock_client.list_conversations.return_value = [
+                        {"id": "conv-456", "title": "Conversa anterior"}
+                    ]
+                    mock_client.list_messages.return_value = []
+
+                    with patch("sys.argv", ["labia-chat", "--last"]):
+                        with patch("labia_chat.cli.input", return_value="/exit"):
+                            result = main()
+
+        assert result == 0
+        mock_client.list_conversations.assert_called_once_with(limit=1, offset=0)
+        assert mock_client.conversation_id == "conv-456"
+
+    def test_chat_command_creates_new_when_no_previous_conversation(
+        self,
+        capsys,
+    ) -> None:
+        """Testa criação de nova conversa quando não há anteriores."""
+        with patch("labia_chat.cli.resolve_api_url", return_value="http://example.com"):
+            with patch("labia_chat.cli.resolve_token", return_value="test-token"):
+                with patch("labia_chat.cli.CLIClient") as MockClient:
+                    mock_client = MockClient.return_value
+                    mock_client.validate_token.return_value = {"username": "testuser"}
+                    mock_client.list_conversations.return_value = []
+                    mock_client.create_conversation.return_value = {
+                        "id": "new-conv-789",
+                    }
+                    mock_client.list_messages.return_value = []
+
+                    with patch("sys.argv", ["labia-chat", "chat", "--resume-last"]):
+                        with patch("labia_chat.cli.input", return_value="/exit"):
+                            result = main()
+
+        output = capsys.readouterr().out
+        assert result == 0
+        mock_client.list_conversations.assert_called_once_with(limit=1, offset=0)
+        mock_client.create_conversation.assert_called_once()
+        assert "Nenhuma conversa anterior encontrada" in output
+        assert "new-conv-789" in output
+
+    def test_chat_command_rejects_conversation_id_with_resume_last(
+        self,
+        capsys,
+    ) -> None:
+        """Testa que --conversation-id é rejeitado junto com --last."""
+        args = argparse.Namespace(
+            api_url=None,
+            token=None,
+            title=None,
+            conversation_id="some-id",
+            show_last=10,
+            stream=True,
+            last=True,
+            resume_last=False,
+        )
+
+        with patch("labia_chat.cli.resolve_api_url") as mock_resolve_api_url:
+            with patch("labia_chat.cli.resolve_token") as mock_resolve_token:
+                with patch("labia_chat.cli.CLIClient") as MockClient:
+                    result = chat_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 1
+        assert "--conversation-id não pode ser usado com --last/--resume-last" in output
+        mock_resolve_api_url.assert_not_called()
+        mock_resolve_token.assert_not_called()
+        MockClient.assert_not_called()
+
+    def _assert_main_parses_resume_last(
+        self,
+        argv: list[str],
+        *,
+        expected_last: bool,
+        expected_resume_last: bool,
+        expected_command: str | None,
+    ) -> None:
+        """Assert that main parses resume-last flags and dispatches chat_command."""
+        with patch("sys.argv", argv):
+            with patch("labia_chat.cli.chat_command", return_value=0) as mock_chat:
+                result = main()
+
+        assert result == 0
+        mock_chat.assert_called_once()
+        args = mock_chat.call_args[0][0]
+        assert args.last is expected_last
+        assert args.resume_last is expected_resume_last
+        assert args.command == expected_command
+
+    def test_top_level_parser_accepts_last_and_resume_last(self) -> None:
+        """Testa que o parser top-level aceita --last e --resume-last."""
+        self._assert_main_parses_resume_last(
+            ["labia-chat", "--last"],
+            expected_last=True,
+            expected_resume_last=False,
+            expected_command=None,
+        )
+        self._assert_main_parses_resume_last(
+            ["labia-chat", "--resume-last"],
+            expected_last=False,
+            expected_resume_last=True,
+            expected_command=None,
+        )
+
+    def test_chat_subparser_accepts_last_and_resume_last(self) -> None:
+        """Testa que o subcomando chat aceita --last e --resume-last."""
+        self._assert_main_parses_resume_last(
+            ["labia-chat", "chat", "--last"],
+            expected_last=True,
+            expected_resume_last=False,
+            expected_command="chat",
+        )
+        self._assert_main_parses_resume_last(
+            ["labia-chat", "chat", "--resume-last"],
+            expected_last=False,
+            expected_resume_last=True,
+            expected_command="chat",
+        )

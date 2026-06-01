@@ -257,6 +257,49 @@ def chat_title(args: argparse.Namespace) -> str:
     return getattr(args, "title", None) or DEFAULT_CHAT_TITLE
 
 
+def get_most_recent_conversation(client: CLIClient) -> str | None:
+    """Return the user's most recent conversation ID.
+
+    Parameters
+    ----------
+    client
+        Authenticated CLI client.
+
+    Returns
+    -------
+    str | None
+        Most recent conversation ID, or None if no conversations exist.
+    """
+    conversations = client.list_conversations(limit=1, offset=0)
+    if not conversations:
+        return None
+
+    conversation_id = conversations[0].get("id")
+    if not isinstance(conversation_id, str) or not conversation_id:
+        return None
+
+    return conversation_id
+
+
+def validate_resume_last_args(args: argparse.Namespace) -> tuple[bool, str]:
+    """
+    Valida argumentos de resume-last.
+
+    Args:
+        args: Argumentos da linha de comando.
+
+    Returns:
+        Tupla (is_valid, error_message).
+    """
+    if getattr(args, "last", False) or getattr(args, "resume_last", False):
+        if getattr(args, "conversation_id", None):
+            return False, (
+                "Erro: --conversation-id não pode ser usado com --last/--resume-last. "
+                "Use apenas um ou outro."
+            )
+    return True, ""
+
+
 def print_chat_banner(
     api_url: str,
     username: str | None,
@@ -719,6 +762,11 @@ def chat_command(args: argparse.Namespace) -> int:
     Returns:
         Código de saída (0 para sucesso, 1 para erro).
     """
+    is_valid, error_msg = validate_resume_last_args(args)
+    if not is_valid:
+        print(error_msg)
+        return 1
+
     api_url = resolve_api_url(args.api_url)
     token = resolve_token(args.token)
     stream = chat_stream_enabled(args)
@@ -737,8 +785,33 @@ def chat_command(args: argparse.Namespace) -> int:
 
         conversation_id = args.conversation_id
         show_last = args.show_last
+        resume_last = getattr(args, "last", False) or getattr(
+            args, "resume_last", False
+        )
 
-        if conversation_id:
+        if resume_last:
+            # Tenta obter a conversa mais recente
+            try:
+                recent_conv_id = get_most_recent_conversation(client)
+            except CLI_HANDLED_ERRORS as e:
+                print_cli_error(e)
+                return 1
+
+            if recent_conv_id:
+                client.conversation_id = recent_conv_id
+                conversation_id = recent_conv_id
+            else:
+                # Não há conversas anteriores - cria uma nova
+                print_info(
+                    "Nenhuma conversa anterior encontrada. "
+                    "Criando nova conversa..."
+                )
+                try:
+                    conversation_id = create_chat_conversation(client, chat_title(args))
+                except CLI_HANDLED_ERRORS as e:
+                    print_cli_error(e)
+                    return 1
+        elif conversation_id:
             client.conversation_id = conversation_id
 
             try:
@@ -757,7 +830,9 @@ def chat_command(args: argparse.Namespace) -> int:
 
         print_chat_banner(api_url, username, conversation_id, stream)
 
-        if args.conversation_id and show_last > 0:
+        # Mostra histórico se --conversation-id foi usado explicitamente
+        # ou se --last/--resume-last foi usado e há conversa
+        if (args.conversation_id or resume_last) and show_last > 0:
             try:
                 print_chat_history(client, show_last)
                 print()
@@ -875,6 +950,16 @@ def main() -> int:
         "--conversation-id",
         type=str,
         help="ID da conversa para retomar (UUID)",
+    )
+    parser.add_argument(
+        "--last",
+        action="store_true",
+        help="Retoma a conversa mais recente",
+    )
+    parser.add_argument(
+        "--resume-last",
+        action="store_true",
+        help="Alias de --last",
     )
     parser.add_argument(
         "--show-last",
@@ -1137,6 +1222,16 @@ def main() -> int:
         "--conversation-id",
         type=str,
         help="ID da conversa para retomar (UUID)",
+    )
+    chat_parser.add_argument(
+        "--last",
+        action="store_true",
+        help="Retoma a conversa mais recente",
+    )
+    chat_parser.add_argument(
+        "--resume-last",
+        action="store_true",
+        help="Alias de --last",
     )
     chat_parser.add_argument(
         "--show-last",

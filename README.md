@@ -87,6 +87,25 @@ labia-chat
 Use `labia-chat chat send <conversation-id> "Olá" --no-stream` ou
 `labia-chat chat --no-stream` quando precisar chamar o endpoint não-streaming.
 
+### Resume da conversa mais recente
+
+Para retomar sua conversa mais recente:
+
+```bash
+labia-chat --last
+labia-chat --resume-last
+labia-chat chat --last
+labia-chat chat --resume-last
+```
+
+Se não houver conversas anteriores, uma nova conversa será criada automaticamente.
+
+Para retomar uma conversa específica pelo ID:
+
+```bash
+labia-chat --conversation-id <id> --show-last 5
+```
+
 ### Streaming SSE
 
 Veja:
