@@ -160,7 +160,8 @@ class TestCLIClientValidateToken:
             with pytest.raises(PermissionError) as exc_info:
                 client.validate_token()
 
-        assert "sem permissão chat_vllm" in str(exc_info.value)
+        assert "Acesso ao chat negado" in str(exc_info.value)
+        assert "chat_vllm" in str(exc_info.value)
 
     def test_validate_token_502(self) -> None:
         """Testa erro no backend (502)."""
@@ -753,7 +754,8 @@ class TestCLIClientListConversations:
             with pytest.raises(PermissionError) as exc_info:
                 client.list_conversations()
 
-        assert "sem permissão chat_vllm" in str(exc_info.value)
+        assert "Acesso ao chat negado" in str(exc_info.value)
+        assert "chat_vllm" in str(exc_info.value)
 
 
 class TestCLIClientClose:

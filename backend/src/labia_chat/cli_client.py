@@ -48,6 +48,11 @@ class ConnectionError(CLIError):
     pass
 
 
+CHAT_ACCESS_DENIED_MESSAGE = (
+    "Acesso ao chat negado. Sua conta pode estar inativa ou sem a role chat_vllm."
+)
+
+
 class CLIClient:
     """Cliente HTTP para o backend do labia-chat."""
 
@@ -134,9 +139,7 @@ class CLIClient:
                     "Token inválido ou expirado. Gere um novo token AI-Scope."
                 )
             elif exc.response.status_code == 403:
-                raise PermissionError(
-                    "Usuário autenticado, mas sem permissão chat_vllm."
-                )
+                raise PermissionError(CHAT_ACCESS_DENIED_MESSAGE)
             elif exc.response.status_code == 422:
                 raise ValidationError(
                     "Dados inválidos. Verifique a entrada e tente novamente."
@@ -185,9 +188,7 @@ class CLIClient:
                     "Token inválido ou expirado. Gere um novo token AI-Scope."
                 )
             elif exc.response.status_code == 403:
-                raise PermissionError(
-                    "Usuário autenticado, mas sem permissão chat_vllm."
-                )
+                raise PermissionError(CHAT_ACCESS_DENIED_MESSAGE)
             elif exc.response.status_code == 422:
                 raise ValidationError(
                     "Dados inválidos. Verifique a entrada e tente novamente."
@@ -236,9 +237,7 @@ class CLIClient:
                     "Token inválido ou expirado. Gere um novo token AI-Scope."
                 )
             elif exc.response.status_code == 403:
-                raise PermissionError(
-                    "Usuário autenticado, mas sem permissão chat_vllm."
-                )
+                raise PermissionError(CHAT_ACCESS_DENIED_MESSAGE)
             elif exc.response.status_code == 422:
                 raise ValidationError(
                     "Dados inválidos. Verifique a entrada e tente novamente."
@@ -285,9 +284,7 @@ class CLIClient:
                     "Token inválido ou expirado. Gere um novo token AI-Scope."
                 )
             elif exc.response.status_code == 403:
-                raise PermissionError(
-                    "Usuário autenticado, mas sem permissão chat_vllm."
-                )
+                raise PermissionError(CHAT_ACCESS_DENIED_MESSAGE)
             elif exc.response.status_code == 422:
                 raise ValidationError(
                     "Dados inválidos. Verifique a entrada e tente novamente."
@@ -339,9 +336,7 @@ class CLIClient:
                     "Token inválido ou expirado. Gere um novo token AI-Scope."
                 )
             elif exc.response.status_code == 403:
-                raise PermissionError(
-                    "Usuário autenticado, mas sem permissão chat_vllm."
-                )
+                raise PermissionError(CHAT_ACCESS_DENIED_MESSAGE)
             elif exc.response.status_code == 404:
                 raise NotFoundError("Conversa não encontrada para este usuário.")
             elif exc.response.status_code == 422:
@@ -388,9 +383,7 @@ class CLIClient:
                     "Token inválido ou expirado. Gere um novo token AI-Scope."
                 )
             elif exc.response.status_code == 403:
-                raise PermissionError(
-                    "Usuário autenticado, mas sem permissão chat_vllm."
-                )
+                raise PermissionError(CHAT_ACCESS_DENIED_MESSAGE)
             elif exc.response.status_code == 404:
                 raise NotFoundError("Conversa não encontrada para este usuário.")
             elif exc.response.status_code == 422:
@@ -445,9 +438,7 @@ class CLIClient:
                     "Token inválido ou expirado. Gere um novo token AI-Scope."
                 )
             elif exc.response.status_code == 403:
-                raise PermissionError(
-                    "Usuário autenticado, mas sem permissão chat_vllm."
-                )
+                raise PermissionError(CHAT_ACCESS_DENIED_MESSAGE)
             elif exc.response.status_code == 404:
                 raise NotFoundError("Conversa não encontrada para este usuário.")
             elif exc.response.status_code == 422:
@@ -499,9 +490,7 @@ class CLIClient:
                     "Token inválido ou expirado. Gere um novo token AI-Scope."
                 )
             elif exc.response.status_code == 403:
-                raise PermissionError(
-                    "Usuário autenticado, mas sem permissão chat_vllm."
-                )
+                raise PermissionError(CHAT_ACCESS_DENIED_MESSAGE)
             elif exc.response.status_code == 404:
                 raise NotFoundError("Conversa não encontrada para este usuário.")
             elif exc.response.status_code == 422:
