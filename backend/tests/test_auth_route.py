@@ -33,6 +33,11 @@ class FakeAuthService:
             raise self.error
         return self.user
 
+    def authorize_chat_access(self, user: AuthenticatedUser) -> None:
+        """Simula autorização de chat."""
+        if self.error:
+            raise self.error
+
 
 class FakeChatUserSyncService:
     """Fake de ChatUserSyncService para testes (não acessa banco real)."""
@@ -53,6 +58,13 @@ def test_get_auth_me_without_authorization_header() -> None:
     response = client.get("/auth/me")
     assert response.status_code == 401
     assert response.json()["detail"] == "Not authenticated"
+
+
+def test_health_remains_public() -> None:
+    """Testa GET /health sem Authorization header -> 200."""
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
 
 
 def test_get_auth_me_with_malformed_authorization() -> None:
@@ -98,6 +110,66 @@ def test_get_auth_me_with_valid_token_and_user() -> None:
         assert data["full_name"] == "Test User"
         assert data["is_active"] is True
         assert data["roles"] == ["public", "chat_vllm"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_auth_me_with_valid_token_without_chat_role() -> None:
+    """Testa que GET /auth/me não exige role chat_vllm."""
+    mock_user = AuthenticatedUser(
+        id="user123",
+        username="testuser",
+        email="test@example.com",
+        full_name="Test User",
+        is_active=True,
+        is_staff=False,
+        is_superuser=False,
+        roles=["public"],
+    )
+
+    app.dependency_overrides[get_auth_service] = lambda: FakeAuthService(
+        user=mock_user
+    )
+    app.dependency_overrides[get_chat_user_sync_service] = (
+        lambda: FakeChatUserSyncService()
+    )
+
+    try:
+        response = client.get(
+            "/auth/me", headers={"Authorization": "Bearer valid-token"}
+        )
+        assert response.status_code == 200
+        assert response.json()["roles"] == ["public"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_auth_me_with_valid_token_and_inactive_user() -> None:
+    """Testa que GET /auth/me permanece útil para usuário inativo."""
+    mock_user = AuthenticatedUser(
+        id="user123",
+        username="testuser",
+        email="test@example.com",
+        full_name="Test User",
+        is_active=False,
+        is_staff=False,
+        is_superuser=False,
+        roles=["chat_vllm"],
+    )
+
+    app.dependency_overrides[get_auth_service] = lambda: FakeAuthService(
+        user=mock_user
+    )
+    app.dependency_overrides[get_chat_user_sync_service] = (
+        lambda: FakeChatUserSyncService()
+    )
+
+    try:
+        response = client.get(
+            "/auth/me", headers={"Authorization": "Bearer valid-token"}
+        )
+        assert response.status_code == 200
+        assert response.json()["is_active"] is False
     finally:
         app.dependency_overrides.clear()
 
