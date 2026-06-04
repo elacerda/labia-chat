@@ -50,19 +50,22 @@ flag CLI > variável de ambiente > arquivo de configuração > default
 Default:
 
 ```text
-http://127.0.0.1:8010
+http://orion.cbpf.br:8010
 ```
+
+Existing users with `~/.config/labia-chat/config.toml` may still override this
+built-in default. Use `labia-chat config show` to inspect the active URL.
 
 Variável:
 
 ```bash
-LABIA_CHAT_API_URL=http://127.0.0.1:8010
+LABIA_CHAT_API_URL=http://orion.cbpf.br:8010
 ```
 
 Flag:
 
 ```bash
-labia-chat chat --api-url http://127.0.0.1:8010
+labia-chat chat --api-url http://orion.cbpf.br:8010
 ```
 
 ### Token

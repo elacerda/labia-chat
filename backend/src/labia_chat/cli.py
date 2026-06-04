@@ -19,6 +19,9 @@ from labia_chat.cli_client import (
     PermissionError as CLIPermissionError,
 )
 from labia_chat.cli_config import (
+    DEFAULT_API_URL,
+)
+from labia_chat.cli_config import (
     resolve_api_url_with_source as resolve_api_url_with_source_config,
 )
 from labia_chat.cli_config import (
@@ -45,7 +48,6 @@ from labia_chat.cli_ui import (
     print_help as print_help_ui,
 )
 
-DEFAULT_API_URL = "http://127.0.0.1:8010"
 DEFAULT_CHAT_TITLE = "CLI chat"
 DOCTOR_HINT = "Sugestão: execute `labia-chat doctor` para diagnosticar o ambiente."
 CLI_HANDLED_ERRORS = (
@@ -79,7 +81,7 @@ def get_cli_version() -> str:
 
 def resolve_api_url(args_api_url: str | None) -> str:
     """
-    Resolve a URL da API na ordem: flag > env > default.
+    Resolve a URL da API na ordem: flag > env > config > default.
 
     Args:
         args_api_url: Valor passado via --api-url.
@@ -87,12 +89,8 @@ def resolve_api_url(args_api_url: str | None) -> str:
     Returns:
         A URL da API resolvida.
     """
-    if args_api_url:
-        return args_api_url
-    env_url = os.environ.get("LABIA_CHAT_API_URL")
-    if env_url:
-        return env_url
-    return DEFAULT_API_URL
+    api_url, _source = resolve_api_url_with_source_config(args_api_url)
+    return api_url
 
 
 def resolve_api_url_with_source(args_api_url: str | None) -> tuple[str, str]:
@@ -105,12 +103,7 @@ def resolve_api_url_with_source(args_api_url: str | None) -> tuple[str, str]:
     Returns:
         Tupla com URL resolvida e origem: argument, env ou default.
     """
-    if args_api_url:
-        return args_api_url, "argument"
-    env_url = os.environ.get("LABIA_CHAT_API_URL")
-    if env_url:
-        return env_url, "env"
-    return DEFAULT_API_URL, "default"
+    return resolve_api_url_with_source_config(args_api_url)
 
 
 def resolve_token(args_token: str | None) -> str:
@@ -1032,6 +1025,10 @@ def main() -> int:
     Returns:
         Código de saída (0 para sucesso, 1 para erro).
     """
+    api_url_help = (
+        f"URL do backend (padrão: {DEFAULT_API_URL}, config ou LABIA_CHAT_API_URL)"
+    )
+
     parser = argparse.ArgumentParser(
         prog="labia-chat",
         description="CLI para chat com modelos locais via backend FastAPI",
@@ -1048,10 +1045,7 @@ def main() -> int:
     parser.add_argument(
         "--api-url",
         type=str,
-        help=(
-            "URL do backend (padrão: http://127.0.0.1:8010, config ou "
-            "LABIA_CHAT_API_URL)"
-        ),
+        help=api_url_help,
     )
     parser.add_argument(
         "--token",
@@ -1121,7 +1115,7 @@ def main() -> int:
     config_init_parser.add_argument(
         "--api-url",
         type=str,
-        help="URL do backend (padrão: http://127.0.0.1:8010)",
+        help=f"URL do backend a salvar (padrão embutido: {DEFAULT_API_URL})",
     )
     config_init_parser.add_argument(
         "--streaming-default",
@@ -1143,7 +1137,7 @@ def main() -> int:
     config_show_parser.add_argument(
         "--api-url",
         type=str,
-        help="URL do backend (padrão: http://127.0.0.1:8010 ou LABIA_CHAT_API_URL)",
+        help=api_url_help,
     )
     config_show_parser.add_argument(
         "--token",
@@ -1159,7 +1153,7 @@ def main() -> int:
     doctor_parser.add_argument(
         "--api-url",
         type=str,
-        help="URL do backend (padrão: http://127.0.0.1:8010 ou LABIA_CHAT_API_URL)",
+        help=api_url_help,
     )
     doctor_parser.add_argument(
         "--token",
@@ -1189,7 +1183,7 @@ def main() -> int:
     auth_me_parser.add_argument(
         "--api-url",
         type=str,
-        help="URL do backend (padrão: http://127.0.0.1:8010 ou LABIA_CHAT_API_URL)",
+        help=api_url_help,
     )
     auth_me_parser.add_argument(
         "--token",
@@ -1214,7 +1208,7 @@ def main() -> int:
     conversations_create_parser.add_argument(
         "--api-url",
         type=str,
-        help="URL do backend (padrão: http://127.0.0.1:8010 ou LABIA_CHAT_API_URL)",
+        help=api_url_help,
     )
     conversations_create_parser.add_argument(
         "--token",
@@ -1235,7 +1229,7 @@ def main() -> int:
     conversations_list_parser.add_argument(
         "--api-url",
         type=str,
-        help="URL do backend (padrão: http://127.0.0.1:8010 ou LABIA_CHAT_API_URL)",
+        help=api_url_help,
     )
     conversations_list_parser.add_argument(
         "--token",
@@ -1277,7 +1271,7 @@ def main() -> int:
     messages_list_parser.add_argument(
         "--api-url",
         type=str,
-        help="URL do backend (padrão: http://127.0.0.1:8010 ou LABIA_CHAT_API_URL)",
+        help=api_url_help,
     )
     messages_list_parser.add_argument(
         "--token",
@@ -1324,7 +1318,7 @@ def main() -> int:
     chat_send_parser.add_argument(
         "--api-url",
         type=str,
-        help="URL do backend (padrão: http://127.0.0.1:8010 ou LABIA_CHAT_API_URL)",
+        help=api_url_help,
     )
     chat_send_parser.add_argument(
         "--token",
@@ -1350,7 +1344,7 @@ def main() -> int:
     chat_parser.add_argument(
         "--api-url",
         type=str,
-        help="URL do backend (padrão: http://127.0.0.1:8010 ou LABIA_CHAT_API_URL)",
+        help=api_url_help,
     )
     chat_parser.add_argument(
         "--token",

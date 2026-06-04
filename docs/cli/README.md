@@ -2,8 +2,9 @@
 
 ## First Use
 
-Install the backend package, then point the CLI at the backend and provide an
-AI-Scope token:
+Install the backend package. The CLI defaults to the Orion backend at
+`http://orion.cbpf.br:8010`, so new users do not need to set
+`LABIA_CHAT_API_URL` for the default service.
 
 > **Nota:** O smoke validation (`bash backend/scripts/smoke_cli.sh`) cria uma
 > configuração local temporária e valida que o arquivo não contém segredos.
@@ -11,10 +12,6 @@ AI-Scope token:
 ```bash
 cd backend
 python -m pip install -e ".[dev]"
-export LABIA_CHAT_API_URL=http://127.0.0.1:8010
-read -rsp "AI-Scope token: " LABIA_CHAT_TOKEN
-export LABIA_CHAT_TOKEN
-echo
 ```
 
 Check the resolved configuration without printing secrets:
@@ -23,6 +20,9 @@ Check the resolved configuration without printing secrets:
 labia-chat --version
 labia-chat config show
 ```
+
+Existing users with `~/.config/labia-chat/config.toml` may still override the
+built-in default. Use `labia-chat config show` to inspect the active URL.
 
 Initialize or update local non-sensitive configuration:
 
@@ -59,7 +59,7 @@ labia-chat doctor --with-model
 
 ## Configuration
 
-- `LABIA_CHAT_API_URL`: backend URL. Defaults to `http://127.0.0.1:8010`.
+- `LABIA_CHAT_API_URL`: backend URL. Built-in default is `http://orion.cbpf.br:8010`.
 - `LABIA_CHAT_TOKEN`: AI-Scope access token. The CLI never saves this token.
 - `--api-url`: overrides `LABIA_CHAT_API_URL` for one command.
 - `--token`: overrides `LABIA_CHAT_TOKEN` for one command.

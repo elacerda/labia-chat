@@ -73,10 +73,6 @@ Quickstart:
 ```bash
 cd backend
 python -m pip install -e ".[dev]"
-export LABIA_CHAT_API_URL=http://127.0.0.1:8010
-read -rsp "AI-Scope token: " LABIA_CHAT_TOKEN
-export LABIA_CHAT_TOKEN
-echo
 
 labia-chat config init [--api-url <url>] [--streaming-default <true|false>] [--show-last-default <n>]
 labia-chat config show
@@ -84,6 +80,11 @@ labia-chat doctor
 labia-chat conversations list
 labia-chat
 ```
+
+O default embutido do CLI é `http://orion.cbpf.br:8010`. Usuários existentes
+podem continuar sobrescrevendo esse valor por `--api-url`, `LABIA_CHAT_API_URL`
+ou `~/.config/labia-chat/config.toml`; use `labia-chat config show` para ver a
+URL ativa.
 
 Use `labia-chat chat send <conversation-id> "Olá" --no-stream` ou
 `labia-chat chat --no-stream` quando precisar chamar o endpoint não-streaming.
