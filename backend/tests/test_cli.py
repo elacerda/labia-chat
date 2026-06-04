@@ -210,11 +210,15 @@ class TestConfigShowCommand:
         assert "Status do token: configurado" in output
         assert "Origem do token: argument" in output
 
-    def test_config_show_reports_missing_token(self, capsys) -> None:
+    def test_config_show_reports_missing_token(self, capsys, tmp_path) -> None:
         """Testa que token ausente é reportado sem prompt."""
         args = argparse.Namespace(api_url=None, token=None)
 
-        with patch.dict("os.environ", {}, clear=True):
+        with patch.dict(
+            "os.environ",
+            {"XDG_CONFIG_HOME": str(tmp_path)},
+            clear=True,
+        ):
             result = config_show_command(args)
 
         output = capsys.readouterr().out
@@ -2529,7 +2533,9 @@ class TestConfigSourceReporting:
         assert result == 0
         assert "API URL: http://cli-flag.com:8010 (source: argument)" in output
 
-    def test_doctor_reports_default_source_when_no_config_no_env(self, capsys) -> None:
+    def test_doctor_reports_default_source_when_no_config_no_env(
+        self, capsys, tmp_path
+    ) -> None:
         """Testa doctor com origem default."""
         args = argparse.Namespace(
             api_url=None,
@@ -2537,7 +2543,11 @@ class TestConfigSourceReporting:
             with_model=False,
         )
 
-        with patch.dict("os.environ", {}, clear=True):
+        with patch.dict(
+            "os.environ",
+            {"XDG_CONFIG_HOME": str(tmp_path)},
+            clear=True,
+        ):
             with patch("labia_chat.cli.CLIClient") as MockClient:
                 mock_client = MagicMock()
                 MockClient.return_value = mock_client
@@ -2589,7 +2599,7 @@ class TestConfigSourceReporting:
         assert "Origem da URL da API: env" in output
 
     def test_config_show_reports_default_source_when_no_config_no_env(
-        self, capsys
+        self, capsys, tmp_path
     ) -> None:
         """Testa config show com origem default."""
         args = argparse.Namespace(
@@ -2597,7 +2607,11 @@ class TestConfigSourceReporting:
             token=None,
         )
 
-        with patch.dict("os.environ", {}, clear=True):
+        with patch.dict(
+            "os.environ",
+            {"XDG_CONFIG_HOME": str(tmp_path)},
+            clear=True,
+        ):
             result = config_show_command(args)
 
         output = capsys.readouterr().out
