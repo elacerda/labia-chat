@@ -54,8 +54,8 @@ or tokens by default.
 Useful options:
 
 ```bash
-bash backend/scripts/smoke_wheel_install.sh --api-url http://127.0.0.1:8010
-bash backend/scripts/smoke_wheel_install.sh --with-backend --api-url http://127.0.0.1:8010
+bash backend/scripts/smoke_wheel_install.sh --api-url http://orion.cbpf.br:8010
+bash backend/scripts/smoke_wheel_install.sh --with-backend --api-url http://orion.cbpf.br:8010
 bash backend/scripts/smoke_wheel_install.sh --interactive-login
 bash backend/scripts/smoke_wheel_install.sh --keep
 ```
@@ -70,11 +70,19 @@ inspection.
 The CLI defaults to:
 
 ```text
-http://127.0.0.1:8010
+http://orion.cbpf.br:8010
 ```
 
-Use `--api-url` or `LABIA_CHAT_API_URL` to point at a different backend. The
-local operational Docker Compose setup can be run outside this repository at:
+Existing users with `~/.config/labia-chat/config.toml` may still override the
+built-in default. Inspect the active URL with:
+
+```bash
+labia-chat config show
+```
+
+Use `--api-url`, `LABIA_CHAT_API_URL`, or `labia-chat config init --api-url ...`
+to point at a different backend when needed. The local operational Docker
+Compose setup can be run outside this repository at:
 
 ```bash
 cd ~/services/labia-chat

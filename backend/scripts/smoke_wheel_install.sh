@@ -4,7 +4,7 @@
 #
 # Usage:
 #   bash backend/scripts/smoke_wheel_install.sh
-#   bash backend/scripts/smoke_wheel_install.sh --api-url http://127.0.0.1:8010
+#   bash backend/scripts/smoke_wheel_install.sh --api-url http://orion.cbpf.br:8010
 #   bash backend/scripts/smoke_wheel_install.sh --with-backend
 #   bash backend/scripts/smoke_wheel_install.sh --interactive-login
 #   bash backend/scripts/smoke_wheel_install.sh --keep
@@ -13,7 +13,7 @@
 
 set -euo pipefail
 
-DEFAULT_API_URL="http://127.0.0.1:8010"
+DEFAULT_API_URL="http://orion.cbpf.br:8010"
 API_URL="$DEFAULT_API_URL"
 WITH_BACKEND=false
 INTERACTIVE_LOGIN=false

@@ -32,6 +32,7 @@ from labia_chat.cli_client import (
     NotFoundError,
     PermissionError,
 )
+from labia_chat.cli_config import DEFAULT_API_URL, save_config
 
 INTERACTIVE_TOKEN_RESOLVER = "labia_chat.cli.resolve_interactive_chat_token"
 
@@ -51,11 +52,23 @@ class TestResolveApiUrl:
             result = resolve_api_url(None)
             assert result == "http://env.com"
 
-    def test_default_used_when_no_flag_no_env(self) -> None:
+    def test_default_used_when_no_flag_no_env(self, tmp_path) -> None:
         """Testa que default é usado quando não há flag nem env."""
-        with patch.dict("os.environ", {"LABIA_CHAT_API_URL": ""}, clear=True):
+        with patch.dict(
+            "os.environ",
+            {"LABIA_CHAT_API_URL": "", "XDG_CONFIG_HOME": str(tmp_path)},
+            clear=True,
+        ):
             result = resolve_api_url(None)
-            assert result == "http://127.0.0.1:8010"
+            assert result == DEFAULT_API_URL
+
+    def test_config_used_when_no_flag_no_env(self, tmp_path, monkeypatch) -> None:
+        """Testa que config é usado antes do default."""
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        monkeypatch.delenv("LABIA_CHAT_API_URL", raising=False)
+        save_config(api_url="http://config.example:8010")
+
+        assert resolve_api_url(None) == "http://config.example:8010"
 
     def test_trailing_slash_stripped(self) -> None:
         """Testa que trailing slash é removido no CLIClient."""
@@ -223,7 +236,7 @@ class TestConfigShowCommand:
 
         output = capsys.readouterr().out
         assert result == 0
-        assert "URL da API: http://127.0.0.1:8010" in output
+        assert f"URL da API: {DEFAULT_API_URL}" in output
         assert "Origem da URL da API: default" in output
         assert "Status do token: ausente" in output
         assert "Origem do token: ausente" in output
@@ -2557,14 +2570,12 @@ class TestConfigSourceReporting:
 
         output = capsys.readouterr().out
         assert result == 0
-        assert "API URL: http://127.0.0.1:8010 (source: default)" in output
+        assert f"API URL: {DEFAULT_API_URL} (source: default)" in output
 
     def test_config_show_reports_config_source_when_config_exists(
         self, tmp_path, monkeypatch, capsys
     ) -> None:
         """Testa config show com origem config."""
-        from labia_chat.cli_config import save_config
-
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
         monkeypatch.delenv("LABIA_CHAT_API_URL", raising=False)
 

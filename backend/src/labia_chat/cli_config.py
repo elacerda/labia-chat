@@ -4,6 +4,8 @@ import os
 import sys
 from pathlib import Path
 
+DEFAULT_API_URL = "http://orion.cbpf.br:8010"
+
 # TOML leitura (Python 3.11+)
 if sys.version_info >= (3, 11):
     import tomllib
@@ -139,7 +141,7 @@ def resolve_api_url_with_source(args_api_url: str | None) -> tuple[str, str]:
         return config["api_url"], "config"
 
     # 4. Default
-    return "http://127.0.0.1:8010", "default"
+    return DEFAULT_API_URL, "default"
 
 
 def resolve_streaming_default_with_source(args_stream: bool | None) -> tuple[bool, str]:
