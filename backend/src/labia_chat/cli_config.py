@@ -44,7 +44,11 @@ def get_config_dir() -> Path:
     xdg_config = os.environ.get("XDG_CONFIG_HOME")
     if xdg_config:
         return Path(xdg_config) / "labia-chat"
-    return Path.home() / ".config" / "labia-chat"
+    try:
+        home = Path.home()
+    except RuntimeError:
+        home = Path.cwd()
+    return home / ".config" / "labia-chat"
 
 
 def get_config_path() -> Path:

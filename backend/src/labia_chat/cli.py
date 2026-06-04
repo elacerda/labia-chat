@@ -6,6 +6,7 @@ import os
 from importlib import metadata
 
 from labia_chat import __version__
+from labia_chat.cli_auth import LoginError, prompt_for_ai_scope_login
 from labia_chat.cli_client import (
     AuthError,
     BackendError,
@@ -148,6 +149,37 @@ def resolve_token_optional_with_source(
     if env_token:
         return env_token, "env"
     return None, "missing"
+
+
+def resolve_token_required(args_token: str | None) -> str | None:
+    """
+    Resolve token para comandos não interativos sem prompt.
+
+    Returns:
+        Token resolvido, ou None quando ausente.
+    """
+    token, _source = resolve_token_optional_with_source_config(args_token)
+    return token
+
+
+def resolve_interactive_chat_token(args_token: str | None) -> str:
+    """
+    Resolve token para chat interativo, fazendo login AI-Scope se necessário.
+
+    O token obtido por login permanece apenas em memória no processo atual.
+    """
+    token, _source = resolve_token_optional_with_source_config(args_token)
+    if token:
+        return token
+    return prompt_for_ai_scope_login()
+
+
+def print_missing_token_error() -> None:
+    """Imprime erro estável para comandos sem token e sem login interativo."""
+    print(
+        "Erro: token AI-Scope ausente. Informe --token ou LABIA_CHAT_TOKEN. "
+        "Login automático só é usado no chat interativo."
+    )
 
 
 def print_cli_error(error: Exception, context: str | None = None) -> None:
@@ -595,7 +627,10 @@ def auth_me_command(args: argparse.Namespace) -> int:
         Código de saída (0 para sucesso, 1 para erro).
     """
     api_url = resolve_api_url(args.api_url)
-    token = resolve_token(args.token)
+    token = resolve_token_required(args.token)
+    if not token:
+        print_missing_token_error()
+        return 1
 
     client = CLIClient(api_url)
 
@@ -634,7 +669,10 @@ def conversations_create_command(args: argparse.Namespace) -> int:
         Código de saída (0 para sucesso, 1 para erro).
     """
     api_url = resolve_api_url(args.api_url)
-    token = resolve_token(args.token)
+    token = resolve_token_required(args.token)
+    if not token:
+        print_missing_token_error()
+        return 1
 
     client = CLIClient(api_url)
 
@@ -674,7 +712,10 @@ def conversations_list_command(args: argparse.Namespace) -> int:
         Código de saída (0 para sucesso, 1 para erro).
     """
     api_url = resolve_api_url(args.api_url)
-    token = resolve_token(args.token)
+    token = resolve_token_required(args.token)
+    if not token:
+        print_missing_token_error()
+        return 1
 
     client = CLIClient(api_url)
 
@@ -713,7 +754,10 @@ def messages_list_command(args: argparse.Namespace) -> int:
         Código de saída (0 para sucesso, 1 para erro).
     """
     api_url = resolve_api_url(args.api_url)
-    token = resolve_token(args.token)
+    token = resolve_token_required(args.token)
+    if not token:
+        print_missing_token_error()
+        return 1
 
     client = CLIClient(api_url)
 
@@ -757,7 +801,10 @@ def chat_send_command(args: argparse.Namespace) -> int:
         Código de saída (0 para sucesso, 1 para erro).
     """
     api_url = resolve_api_url(args.api_url)
-    token = resolve_token(args.token)
+    token = resolve_token_required(args.token)
+    if not token:
+        print_missing_token_error()
+        return 1
 
     client = CLIClient(api_url)
 
@@ -831,7 +878,11 @@ def chat_command(args: argparse.Namespace) -> int:
         return 1
 
     api_url = resolve_api_url(args.api_url)
-    token = resolve_token(args.token)
+    try:
+        token = resolve_interactive_chat_token(args.token)
+    except LoginError as e:
+        print_cli_error(e)
+        return 1
     stream = chat_stream_enabled(args)
 
     client = CLIClient(api_url)
@@ -1005,7 +1056,7 @@ def main() -> int:
     parser.add_argument(
         "--token",
         type=str,
-        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN ou prompt sem eco)",
+        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN ou login interativo)",
     )
     parser.add_argument(
         "--title",
@@ -1143,7 +1194,7 @@ def main() -> int:
     auth_me_parser.add_argument(
         "--token",
         type=str,
-        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN ou prompt sem eco)",
+        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN)",
     )
 
     # Comando conversations
@@ -1168,7 +1219,7 @@ def main() -> int:
     conversations_create_parser.add_argument(
         "--token",
         type=str,
-        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN ou prompt sem eco)",
+        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN)",
     )
     conversations_create_parser.add_argument(
         "--title",
@@ -1189,7 +1240,7 @@ def main() -> int:
     conversations_list_parser.add_argument(
         "--token",
         type=str,
-        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN ou prompt sem eco)",
+        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN)",
     )
     conversations_list_parser.add_argument(
         "--limit",
@@ -1231,7 +1282,7 @@ def main() -> int:
     messages_list_parser.add_argument(
         "--token",
         type=str,
-        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN ou prompt sem eco)",
+        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN)",
     )
     messages_list_parser.add_argument(
         "--limit",
@@ -1278,7 +1329,7 @@ def main() -> int:
     chat_send_parser.add_argument(
         "--token",
         type=str,
-        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN ou prompt sem eco)",
+        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN)",
     )
     chat_send_stream_group = chat_send_parser.add_mutually_exclusive_group()
     chat_send_stream_group.add_argument(
@@ -1304,7 +1355,7 @@ def main() -> int:
     chat_parser.add_argument(
         "--token",
         type=str,
-        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN ou prompt sem eco)",
+        help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN ou login interativo)",
     )
     chat_parser.add_argument(
         "--title",
