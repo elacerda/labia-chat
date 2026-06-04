@@ -24,7 +24,7 @@ class AuthService:
 
     async def validate_token(self, token: str) -> AuthenticatedUser:
         """
-        Valida um token de autenticação e verifica as roles do usuário.
+        Valida um token de autenticação.
 
         Args:
             token: Token de autenticação Bearer.
@@ -34,7 +34,6 @@ class AuthService:
 
         Raises:
             AuthenticationError: Se o token for inválido ou expirado.
-            AuthorizationError: Se o usuário estiver inativo ou sem role exigida.
             ExternalServiceError: Se o serviço externo (ADSS) estiver indisponível.
         """
         async with self._adss_client as client:
@@ -49,19 +48,7 @@ class AuthService:
                     f"Failed to validate authentication token: {exc}"
                 ) from exc
 
-        # Valida se usuário está ativo
-        if not adss_user.is_active:
-            raise AuthorizationError("User is not active")
-
-        # Valida se usuário tem a role exigida
-        required_role = settings.adss_required_role
         user_roles = [role.name for role in adss_user.roles]
-
-        if required_role not in user_roles:
-            raise AuthorizationError(
-                f"User does not have required role '{required_role}'. "
-                f"Available roles: {user_roles}"
-            )
 
         # Normaliza para AuthenticatedUser
         return AuthenticatedUser(
@@ -74,3 +61,23 @@ class AuthService:
             is_superuser=adss_user.is_superuser,
             roles=user_roles,
         )
+
+    def authorize_chat_access(self, user: AuthenticatedUser) -> None:
+        """
+        Verifica se um usuário autenticado pode acessar endpoints de chat.
+
+        Args:
+            user: Usuário autenticado e normalizado.
+
+        Raises:
+            AuthorizationError: Se o usuário estiver inativo ou sem role exigida.
+        """
+        if not user.is_active:
+            raise AuthorizationError("Usuário AI-Scope inativo.")
+
+        required_role = settings.adss_required_role
+        if required_role not in user.roles:
+            raise AuthorizationError(
+                "Usuário sem permissão para usar o chat. "
+                "Role necessária: chat_vllm."
+            )

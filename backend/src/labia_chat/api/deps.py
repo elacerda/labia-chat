@@ -168,6 +168,8 @@ async def _validate_and_sync_user(
     authorization: str | None,
     auth_service: AuthService,
     chat_user_sync_service: ChatUserSyncService,
+    *,
+    require_chat_access: bool = False,
 ) -> tuple[AuthenticatedUser, ChatUser]:
     """
     Valida token e sincroniza usuário local.
@@ -181,6 +183,7 @@ async def _validate_and_sync_user(
         authorization: Header Authorization.
         auth_service: Instância de AuthService.
         chat_user_sync_service: Instância de ChatUserSyncService.
+        require_chat_access: Quando True, exige usuário ativo com role de chat.
 
     Returns:
         Tuple[AuthenticatedUser, ChatUser]: Usuário autenticado e usuário local.
@@ -194,6 +197,8 @@ async def _validate_and_sync_user(
 
     try:
         user = await auth_service.validate_token(token)
+        if require_chat_access:
+            auth_service.authorize_chat_access(user)
     except AuthenticationError as exc:
         raise HTTPException(
             status_code=401,
@@ -244,7 +249,9 @@ async def get_current_user(
         HTTPException 503: Se o serviço externo estiver indisponível.
     """
     user, _ = await _validate_and_sync_user(
-        authorization, auth_service, chat_user_sync_service
+        authorization,
+        auth_service,
+        chat_user_sync_service,
     )
     return user
 
@@ -274,6 +281,9 @@ async def get_current_chat_user(
         HTTPException 503: Se o serviço externo estiver indisponível.
     """
     _, chat_user = await _validate_and_sync_user(
-        authorization, auth_service, chat_user_sync_service
+        authorization,
+        auth_service,
+        chat_user_sync_service,
+        require_chat_access=True,
     )
     return chat_user

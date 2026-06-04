@@ -15,7 +15,9 @@ from labia_chat.api.deps import (
     get_current_chat_user,
 )
 from labia_chat.api.routes.chat import GenerateRequest, generate_response_stream
+from labia_chat.core.errors import AuthenticationError, AuthorizationError
 from labia_chat.main import app
+from labia_chat.schemas.user import AuthenticatedUser
 
 client = TestClient(app)
 
@@ -33,6 +35,56 @@ class FakeChatUser:
         self.is_staff = False
         self.is_superuser = False
         self.roles = ["chat_vllm"]
+
+
+class FakeAuthService:
+    """Fake de AuthService para exercitar dependências reais de chat."""
+
+    def __init__(self, user: AuthenticatedUser | None = None, error=None):
+        self.user = user
+        self.error = error
+
+    async def validate_token(self, token: str) -> AuthenticatedUser:
+        """Retorna usuário autenticado ou erro de autenticação."""
+        if self.error:
+            raise self.error
+        return self.user
+
+    def authorize_chat_access(self, user: AuthenticatedUser) -> None:
+        """Aplica a política de acesso ao chat usada nos testes HTTP."""
+        if not user.is_active:
+            raise AuthorizationError("Usuário AI-Scope inativo.")
+        if "chat_vllm" not in user.roles:
+            raise AuthorizationError(
+                "Usuário sem permissão para usar o chat. "
+                "Role necessária: chat_vllm."
+            )
+
+
+class FakeChatUserSyncService:
+    """Fake de sincronização local de usuário para testes HTTP."""
+
+    async def sync(self, user: AuthenticatedUser) -> FakeChatUser:
+        """Retorna usuário local sincronizado."""
+        return FakeChatUser(id=str(uuid4()), adss_id=user.id, username=user.username)
+
+
+def make_authenticated_user(
+    *,
+    is_active: bool = True,
+    roles: list[str] | None = None,
+) -> AuthenticatedUser:
+    """Cria usuário autenticado para testes de autorização."""
+    return AuthenticatedUser(
+        id="adss-user-123",
+        username="testuser",
+        email="test@example.com",
+        full_name="Test User",
+        is_active=is_active,
+        is_staff=False,
+        is_superuser=False,
+        roles=roles or ["chat_vllm"],
+    )
 
 
 class FakeChatPersistenceService:
@@ -131,6 +183,87 @@ def test_get_conversations_without_authorization() -> None:
     response = client.get("/chat/conversations")
     assert response.status_code == 401
     assert response.json()["detail"] == "Not authenticated"
+
+
+def test_get_conversations_with_invalid_token_returns_401() -> None:
+    """Testa GET /chat/conversations com token inválido -> 401."""
+    app.dependency_overrides[get_auth_service] = lambda: FakeAuthService(
+        error=AuthenticationError("Invalid or expired token")
+    )
+    app.dependency_overrides[get_chat_user_sync_service] = (
+        lambda: FakeChatUserSyncService()
+    )
+
+    try:
+        response = client.get(
+            "/chat/conversations", headers={"Authorization": "Bearer invalid-token"}
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"] == "Invalid or expired token"
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_conversations_with_chat_role_allowed() -> None:
+    """Testa GET /chat/conversations com usuário ativo e chat_vllm -> 200."""
+    fake_service = FakeChatPersistenceService()
+    app.dependency_overrides[get_auth_service] = lambda: FakeAuthService(
+        user=make_authenticated_user(roles=["public", "chat_vllm"])
+    )
+    app.dependency_overrides[get_chat_user_sync_service] = (
+        lambda: FakeChatUserSyncService()
+    )
+    app.dependency_overrides[get_chat_persistence_service] = lambda: fake_service
+
+    try:
+        response = client.get(
+            "/chat/conversations", headers={"Authorization": "Bearer valid-token"}
+        )
+        assert response.status_code == 200
+        assert response.json() == []
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_conversations_without_chat_role_returns_403() -> None:
+    """Testa GET /chat/conversations com usuário sem chat_vllm -> 403."""
+    app.dependency_overrides[get_auth_service] = lambda: FakeAuthService(
+        user=make_authenticated_user(roles=["public"])
+    )
+    app.dependency_overrides[get_chat_user_sync_service] = (
+        lambda: FakeChatUserSyncService()
+    )
+
+    try:
+        response = client.get(
+            "/chat/conversations", headers={"Authorization": "Bearer valid-token"}
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"] == (
+            "Usuário sem permissão para usar o chat. "
+            "Role necessária: chat_vllm."
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_get_conversations_with_inactive_user_returns_403() -> None:
+    """Testa GET /chat/conversations com usuário inativo -> 403."""
+    app.dependency_overrides[get_auth_service] = lambda: FakeAuthService(
+        user=make_authenticated_user(is_active=False, roles=["chat_vllm"])
+    )
+    app.dependency_overrides[get_chat_user_sync_service] = (
+        lambda: FakeChatUserSyncService()
+    )
+
+    try:
+        response = client.get(
+            "/chat/conversations", headers={"Authorization": "Bearer valid-token"}
+        )
+        assert response.status_code == 403
+        assert response.json()["detail"] == "Usuário AI-Scope inativo."
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_get_conversations_with_valid_user() -> None:

@@ -8,7 +8,7 @@ from labia_chat.core.errors import (
     AuthorizationError,
     ExternalServiceError,
 )
-from labia_chat.schemas.user import ADSSRole, ADSSUser
+from labia_chat.schemas.user import ADSSRole, ADSSUser, AuthenticatedUser
 from labia_chat.services.adss_client import AdssClient
 from labia_chat.services.auth_service import AuthService
 
@@ -84,7 +84,7 @@ class TestAuthService:
 
     @pytest.mark.asyncio
     async def test_validate_token_user_inactive(self):
-        """Testa validação com usuário inativo."""
+        """Testa que autenticação aceita usuário inativo para diagnóstico."""
         mock_adss_user = ADSSUser(
             id="user123",
             username="testuser",
@@ -101,14 +101,13 @@ class TestAuthService:
         fake_client = FakeAdssClient(user_info=mock_adss_user)
         auth_service = AuthService(adss_client=fake_client)
 
-        with pytest.raises(AuthorizationError) as exc_info:
-            await auth_service.validate_token("valid-token")
+        result = await auth_service.validate_token("valid-token")
 
-        assert "User is not active" in str(exc_info.value)
+        assert result.is_active is False
 
     @pytest.mark.asyncio
     async def test_validate_token_missing_role(self):
-        """Testa validação com usuário sem role exigida."""
+        """Testa que autenticação aceita usuário sem role de chat."""
         mock_adss_user = ADSSUser(
             id="user123",
             username="testuser",
@@ -126,11 +125,49 @@ class TestAuthService:
         fake_client = FakeAdssClient(user_info=mock_adss_user)
         auth_service = AuthService(adss_client=fake_client)
 
-        with pytest.raises(AuthorizationError) as exc_info:
-            await auth_service.validate_token("valid-token")
+        result = await auth_service.validate_token("valid-token")
 
-        assert "does not have required role" in str(exc_info.value)
-        assert "chat_vllm" in str(exc_info.value)
+        assert result.roles == ["public", "other_role"]
+
+    def test_authorize_chat_access_success(self):
+        """Testa autorização de chat com usuário ativo e role exigida."""
+        user = self._authenticated_user(is_active=True, roles=["public", "chat_vllm"])
+        auth_service = AuthService(adss_client=FakeAdssClient())
+
+        auth_service.authorize_chat_access(user)
+
+    def test_authorize_chat_access_user_inactive(self):
+        """Testa autorização de chat com usuário inativo."""
+        user = self._authenticated_user(is_active=False, roles=["chat_vllm"])
+        auth_service = AuthService(adss_client=FakeAdssClient())
+
+        with pytest.raises(AuthorizationError) as exc_info:
+            auth_service.authorize_chat_access(user)
+
+        assert "inativo" in str(exc_info.value)
+
+    def test_authorize_chat_access_missing_role(self):
+        """Testa autorização de chat com usuário sem role exigida."""
+        user = self._authenticated_user(is_active=True, roles=["public"])
+        auth_service = AuthService(adss_client=FakeAdssClient())
+
+        with pytest.raises(AuthorizationError) as exc_info:
+            auth_service.authorize_chat_access(user)
+
+        assert "permissão" in str(exc_info.value)
+
+    @staticmethod
+    def _authenticated_user(is_active: bool, roles: list[str]) -> AuthenticatedUser:
+        return AuthenticatedUser(
+            id="user123",
+            username="testuser",
+            email="test@example.com",
+            full_name="Test User",
+            is_active=is_active,
+            is_staff=False,
+            is_superuser=False,
+            roles=roles,
+        )
 
     @pytest.mark.asyncio
     async def test_adss_role_without_description(self):
