@@ -3,7 +3,14 @@
 import argparse
 import getpass
 import os
+import sys
 from importlib import metadata
+from typing import Any
+
+try:
+    import readline
+except ImportError:  # pragma: no cover - readline is platform dependent.
+    readline: Any | None = None
 
 from labia_chat import __version__
 from labia_chat.cli_auth import LoginError, prompt_for_ai_scope_login
@@ -41,7 +48,6 @@ from labia_chat.cli_ui import (
     print_info,
     print_new_conversation_success,
     print_stream_chunks_markdown,
-    print_user_label,
     print_user_message,
 )
 from labia_chat.cli_ui import (
@@ -344,6 +350,53 @@ def print_chat_banner(
     stream: bool,
 ) -> None:
     print_banner(api_url, username, conversation_id, stream)
+
+
+def enable_interactive_line_editing() -> None:
+    """Enable terminal line editing for input() when readline is available."""
+    if readline is None:
+        return
+
+    readline.set_history_length(1000)
+
+
+def create_chat_prompt_session() -> Any | None:
+    """Create the richer chat prompt when running in an interactive terminal."""
+    if not sys.stdin.isatty():
+        return None
+
+    try:
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.key_binding import KeyBindings
+    except ImportError:
+        return None
+
+    key_bindings = KeyBindings()
+
+    @key_bindings.add("enter")
+    def _(event) -> None:
+        event.app.exit(result=event.app.current_buffer.text)
+
+    @key_bindings.add("c-j")
+    def _(event) -> None:
+        event.current_buffer.insert_text("\n")
+
+    @key_bindings.add("escape", "enter")
+    def _(event) -> None:
+        event.current_buffer.insert_text("\n")
+
+    return PromptSession(
+        key_bindings=key_bindings,
+        multiline=True,
+        prompt_continuation="... ",
+    )
+
+
+def read_chat_input(prompt_session: Any | None) -> str:
+    """Read one chat message from the terminal."""
+    if prompt_session is None:
+        return input("Você: ")
+    return prompt_session.prompt("Você: ")
 
 
 def create_chat_conversation(
@@ -947,10 +1000,12 @@ def chat_command(args: argparse.Namespace) -> int:
                 print_cli_error(e, "ao carregar histórico")
                 print()
 
+        enable_interactive_line_editing()
+        prompt_session = create_chat_prompt_session()
+
         while True:
             try:
-                print_user_label()
-                user_input = input()
+                user_input = read_chat_input(prompt_session)
             except EOFError:
                 print("\nAté mais.")
                 break
