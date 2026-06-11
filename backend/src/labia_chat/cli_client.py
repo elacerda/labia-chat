@@ -51,6 +51,10 @@ class ConnectionError(CLIError):
 CHAT_ACCESS_DENIED_MESSAGE = (
     "Acesso ao chat negado. Sua conta pode estar inativa ou sem a role chat_vllm."
 )
+BACKEND_MODEL_ERROR_MESSAGE = "Backend não conseguiu obter resposta do modelo."
+BACKEND_UNAVAILABLE_MESSAGE = (
+    "Backend indisponível no momento. Tente novamente em instantes."
+)
 
 
 class CLIClient:
@@ -122,7 +126,7 @@ class CLIClient:
             AuthError: Se o token for inválido (401).
             PermissionError: Se o usuário não tiver permissão (403).
             ValidationError: Se houver erro de validação (422).
-            BackendError: Se houver erro no backend (502).
+            BackendError: Se houver erro no backend (502/503).
             ConnectionError: Se não conseguir conectar ao backend.
         """
         try:
@@ -145,7 +149,9 @@ class CLIClient:
                     "Dados inválidos. Verifique a entrada e tente novamente."
                 )
             elif exc.response.status_code == 502:
-                raise BackendError("Backend não conseguiu obter resposta do modelo.")
+                raise BackendError(BACKEND_MODEL_ERROR_MESSAGE)
+            elif exc.response.status_code == 503:
+                raise BackendError(BACKEND_UNAVAILABLE_MESSAGE)
             raise
         except httpx.TimeoutException:
             raise ConnectionError("Timeout ao conectar ao backend. Tente novamente.")
@@ -193,8 +199,10 @@ class CLIClient:
                 raise ValidationError(
                     "Dados inválidos. Verifique a entrada e tente novamente."
                 )
-            elif exc.response.status_code in (500, 502, 503):
-                raise BackendError("Backend não conseguiu obter resposta do modelo.")
+            elif exc.response.status_code == 503:
+                raise BackendError(BACKEND_UNAVAILABLE_MESSAGE)
+            elif exc.response.status_code in (500, 502):
+                raise BackendError(BACKEND_MODEL_ERROR_MESSAGE)
             raise
         except httpx.TimeoutException:
             raise ConnectionError("Timeout ao conectar ao backend. Tente novamente.")
@@ -215,7 +223,7 @@ class CLIClient:
             AuthError: Se o token for inválido (401).
             PermissionError: Se o usuário não tiver permissão (403).
             ValidationError: Se houver erro de validação (422).
-            BackendError: Se houver erro no backend (502).
+            BackendError: Se houver erro no backend (502/503).
             ConnectionError: Se não conseguir conectar ao backend.
         """
         payload = {}
@@ -243,7 +251,9 @@ class CLIClient:
                     "Dados inválidos. Verifique a entrada e tente novamente."
                 )
             elif exc.response.status_code == 502:
-                raise BackendError("Backend não conseguiu obter resposta do modelo.")
+                raise BackendError(BACKEND_MODEL_ERROR_MESSAGE)
+            elif exc.response.status_code == 503:
+                raise BackendError(BACKEND_UNAVAILABLE_MESSAGE)
             raise
         except httpx.TimeoutException:
             raise ConnectionError("Timeout ao conectar ao backend. Tente novamente.")
@@ -265,7 +275,7 @@ class CLIClient:
             AuthError: Se o token for inválido (401).
             PermissionError: Se o usuário não tiver permissão (403).
             ValidationError: Se houver erro de validação (422).
-            BackendError: Se houver erro no backend (502).
+            BackendError: Se houver erro no backend (502/503).
             ConnectionError: Se não conseguir conectar ao backend.
         """
         try:
@@ -290,7 +300,9 @@ class CLIClient:
                     "Dados inválidos. Verifique a entrada e tente novamente."
                 )
             elif exc.response.status_code == 502:
-                raise BackendError("Backend não conseguiu obter resposta do modelo.")
+                raise BackendError(BACKEND_MODEL_ERROR_MESSAGE)
+            elif exc.response.status_code == 503:
+                raise BackendError(BACKEND_UNAVAILABLE_MESSAGE)
             raise
         except httpx.TimeoutException:
             raise ConnectionError("Timeout ao conectar ao backend. Tente novamente.")
@@ -316,7 +328,7 @@ class CLIClient:
             PermissionError: Se o usuário não tiver permissão (403).
             NotFoundError: Se a conversa não for encontrada (404).
             ValidationError: Se houver erro de validação (422).
-            BackendError: Se houver erro no backend (502).
+            BackendError: Se houver erro no backend (502/503).
             ConnectionError: Se não conseguir conectar ao backend.
         """
         try:
@@ -344,7 +356,9 @@ class CLIClient:
                     "Dados inválidos. Verifique a entrada e tente novamente."
                 )
             elif exc.response.status_code == 502:
-                raise BackendError("Backend não conseguiu obter resposta do modelo.")
+                raise BackendError(BACKEND_MODEL_ERROR_MESSAGE)
+            elif exc.response.status_code == 503:
+                raise BackendError(BACKEND_UNAVAILABLE_MESSAGE)
             raise
         except httpx.TimeoutException:
             raise ConnectionError("Timeout ao conectar ao backend. Tente novamente.")
@@ -366,7 +380,7 @@ class CLIClient:
             PermissionError: Se o usuário não tiver permissão (403).
             NotFoundError: Se a conversa não for encontrada (404).
             ValidationError: Se houver erro de validação (422).
-            BackendError: Se houver erro no backend (502).
+            BackendError: Se houver erro no backend (502/503).
             ConnectionError: Se não conseguir conectar ao backend.
         """
         try:
@@ -391,7 +405,9 @@ class CLIClient:
                     "Dados inválidos. Verifique a entrada e tente novamente."
                 )
             elif exc.response.status_code == 502:
-                raise BackendError("Backend não conseguiu obter resposta do modelo.")
+                raise BackendError(BACKEND_MODEL_ERROR_MESSAGE)
+            elif exc.response.status_code == 503:
+                raise BackendError(BACKEND_UNAVAILABLE_MESSAGE)
             raise
         except httpx.TimeoutException:
             raise ConnectionError("Timeout ao conectar ao backend. Tente novamente.")
@@ -438,8 +454,10 @@ class CLIClient:
                 raise ValidationError(
                     "Dados inválidos. Verifique a entrada e tente novamente."
                 )
-            elif exc.response.status_code in (502, 503):
-                raise BackendError("Backend não conseguiu obter resposta do modelo.")
+            elif exc.response.status_code == 502:
+                raise BackendError(BACKEND_MODEL_ERROR_MESSAGE)
+            elif exc.response.status_code == 503:
+                raise BackendError(BACKEND_UNAVAILABLE_MESSAGE)
             raise
         except httpx.TimeoutException:
             raise ConnectionError("Timeout ao conectar ao backend. Tente novamente.")
@@ -461,7 +479,7 @@ class CLIClient:
             PermissionError: Se o usuário não tiver permissão (403).
             NotFoundError: Se a conversa não for encontrada (404).
             ValidationError: Se houver erro de validação (422).
-            BackendError: Se houver erro no backend (502).
+            BackendError: Se houver erro no backend (502/503).
             ConnectionError: Se não conseguir conectar ao backend.
         """
         if not self.conversation_id:
@@ -494,7 +512,9 @@ class CLIClient:
                     "Dados inválidos. Verifique a entrada e tente novamente."
                 )
             elif exc.response.status_code == 502:
-                raise BackendError("Backend não conseguiu obter resposta do modelo.")
+                raise BackendError(BACKEND_MODEL_ERROR_MESSAGE)
+            elif exc.response.status_code == 503:
+                raise BackendError(BACKEND_UNAVAILABLE_MESSAGE)
             raise
         except httpx.TimeoutException:
             raise ConnectionError("Timeout ao conectar ao backend. Tente novamente.")
@@ -545,8 +565,10 @@ class CLIClient:
                 raise ValidationError(
                     "Dados inválidos. Verifique a entrada e tente novamente."
                 )
+            elif exc.response.status_code == 503:
+                raise BackendError(BACKEND_UNAVAILABLE_MESSAGE)
             elif exc.response.status_code in (500, 502):
-                raise BackendError("Backend não conseguiu obter resposta do modelo.")
+                raise BackendError(BACKEND_MODEL_ERROR_MESSAGE)
             raise
         except httpx.TimeoutException:
             raise ConnectionError("Timeout ao conectar ao backend. Tente novamente.")

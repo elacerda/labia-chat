@@ -163,7 +163,10 @@ def print_conversation_history_table(rows: list[dict]) -> None:
     """
     console.print()
     console.print(Text("Histórico de conversas", style="info"))
-    console.print("Use ↑/↓ e Enter para abrir, d para remover, q/Esc para sair.")
+    console.print(
+        "Escolha pelo número/código; use d <número/código> para remover; "
+        "Enter cancela."
+    )
 
     table = Table(show_header=True, header_style="bold blue")
     table.add_column("#", justify="right", no_wrap=True)

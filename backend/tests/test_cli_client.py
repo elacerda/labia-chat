@@ -566,6 +566,37 @@ class TestCLIClientListMessages:
         assert "Conversa não encontrada" in str(exc_info.value)
 
 
+    def test_list_messages_503_maps_to_backend_error(self) -> None:
+        """Testa que HTTP 503 vira erro seguro do backend."""
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.status_code = 503
+            response.json.return_value = {
+                "detail": "Service Unavailable",
+                "token": "fake-token",
+            }
+            error = httpx.HTTPStatusError(
+                "503 Service Unavailable",
+                request=MagicMock(),
+                response=response,
+            )
+            mock_client.get.side_effect = error
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(BackendError) as exc_info:
+                client.list_messages("conv-123")
+
+        message = str(exc_info.value)
+        assert "Backend indisponível no momento" in message
+        assert "HTTPStatusError" not in message
+        assert "503 Service Unavailable" not in message
+        assert "fake-token" not in message
+
+
 class TestCLIClientGetConversation:
     """Testes de obtenção de conversa."""
 
@@ -758,6 +789,37 @@ class TestCLIClientListConversations:
         assert "chat_vllm" in str(exc_info.value)
 
 
+    def test_list_conversations_503_maps_to_backend_error(self) -> None:
+        """Testa que HTTP 503 vira erro seguro do backend."""
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.status_code = 503
+            response.json.return_value = {
+                "detail": "Service Unavailable",
+                "token": "fake-token",
+            }
+            error = httpx.HTTPStatusError(
+                "503 Service Unavailable",
+                request=MagicMock(),
+                response=response,
+            )
+            mock_client.get.side_effect = error
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(BackendError) as exc_info:
+                client.list_conversations()
+
+        message = str(exc_info.value)
+        assert "Backend indisponível no momento" in message
+        assert "HTTPStatusError" not in message
+        assert "503 Service Unavailable" not in message
+        assert "fake-token" not in message
+
+
 class TestCLIClientArchiveConversation:
     """Testes de arquivamento de conversa."""
 
@@ -834,6 +896,37 @@ class TestCLIClientArchiveConversation:
                 client.archive_conversation("invalid")
 
         assert "Dados inválidos" in str(exc_info.value)
+
+
+    def test_archive_conversation_503_maps_to_backend_error(self) -> None:
+        """Testa que HTTP 503 vira erro seguro do backend."""
+        client = CLIClient("http://example.com")
+        client.set_token("test-token")
+
+        with patch.object(client, "_get_client") as mock_get_client:
+            mock_client = MagicMock()
+            response = MagicMock()
+            response.status_code = 503
+            response.json.return_value = {
+                "detail": "Service Unavailable",
+                "token": "fake-token",
+            }
+            error = httpx.HTTPStatusError(
+                "503 Service Unavailable",
+                request=MagicMock(),
+                response=response,
+            )
+            mock_client.post.side_effect = error
+            mock_get_client.return_value = mock_client
+
+            with pytest.raises(BackendError) as exc_info:
+                client.archive_conversation("conv-123")
+
+        message = str(exc_info.value)
+        assert "Backend indisponível no momento" in message
+        assert "HTTPStatusError" not in message
+        assert "503 Service Unavailable" not in message
+        assert "fake-token" not in message
 
 
 class TestCLIClientClose:

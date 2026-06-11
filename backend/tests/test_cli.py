@@ -37,6 +37,7 @@ from labia_chat.cli import (
     resolve_interactive_chat_token,
     resolve_token,
     resolve_token_required,
+    select_conversation_history_action,
     truncate_conversation_title,
 )
 from labia_chat.cli_auth import LoginError, login_ai_scope, prompt_for_ai_scope_login
@@ -396,6 +397,100 @@ class TestConversationHistoryHelpers:
                 action = prompt_conversation_history_action_fallback(rows)
 
         assert action == {"action": "remove", "row": rows[1]}
+
+    def test_prompt_conversation_history_action_fallback_supports_open_index(
+        self,
+    ) -> None:
+        """Testa fallback por número."""
+        rows = [
+            {"index": 1, "id": "conv-1", "code": "conv-1"},
+            {"index": 2, "id": "conv-2", "code": "conv-2"},
+        ]
+
+        with patch("labia_chat.cli.print_conversation_history_table"):
+            with patch("labia_chat.cli.input", return_value="2"):
+                action = prompt_conversation_history_action_fallback(rows)
+
+        assert action == {"action": "open", "row": rows[1]}
+
+    def test_prompt_conversation_history_action_fallback_supports_open_code(
+        self,
+    ) -> None:
+        """Testa fallback por código."""
+        rows = [
+            {"index": 1, "id": "123456789", "code": "12345678"},
+            {"index": 2, "id": "abcdef", "code": "abcdef"},
+        ]
+
+        with patch("labia_chat.cli.print_conversation_history_table"):
+            with patch("labia_chat.cli.input", return_value="abcdef"):
+                action = prompt_conversation_history_action_fallback(rows)
+
+        assert action == {"action": "open", "row": rows[1]}
+
+    def test_select_conversation_history_prefers_interactive_when_requested(
+        self,
+    ) -> None:
+        """Testa que chat interativo usa seletor por setas."""
+        rows = [{"index": 1, "id": "conv-1", "code": "conv-1"}]
+        expected = {"action": "open", "row": rows[0]}
+
+        with patch("labia_chat.cli.sys.stdin.isatty", return_value=False):
+            with patch(
+                "labia_chat.cli.prompt_conversation_history_action",
+                return_value=expected,
+            ) as interactive:
+                with patch(
+                    "labia_chat.cli.prompt_conversation_history_action_fallback"
+                ) as fallback:
+                    action = select_conversation_history_action(
+                        rows,
+                        prefer_interactive=True,
+                    )
+
+        assert action == expected
+        interactive.assert_called_once_with(rows)
+        fallback.assert_not_called()
+
+    def test_select_conversation_history_warns_before_interactive_fallback(
+        self,
+    ) -> None:
+        """Testa aviso claro antes de cair no fallback interativo."""
+        rows = [{"index": 1, "id": "conv-1", "code": "conv-1"}]
+        expected = {"action": "cancel", "row": None}
+
+        with patch(
+            "labia_chat.cli.prompt_conversation_history_action",
+            side_effect=ImportError("prompt_toolkit"),
+        ):
+            with patch(
+                "labia_chat.cli.prompt_conversation_history_action_fallback",
+                return_value=expected,
+            ) as fallback:
+                with patch("labia_chat.cli.print_info") as print_info:
+                    action = select_conversation_history_action(
+                        rows,
+                        prefer_interactive=True,
+                    )
+
+        assert action == expected
+        fallback.assert_called_once_with(rows)
+        assert "Seletor interativo indisponível" in print_info.call_args.args[0]
+
+    def test_fallback_history_table_omits_arrow_key_instructions(self) -> None:
+        """Testa que fallback não mostra instruções de setas."""
+        rows = [{"index": 1, "code": "conv-1", "title": "Conversa"}]
+
+        with patch.object(cli_ui.console, "print") as console_print:
+            cli_ui.print_conversation_history_table(rows)
+
+        printed = "\n".join(
+            str(call.args[0])
+            for call in console_print.call_args_list
+            if call.args
+        )
+        assert "↑/↓" not in printed
+        assert "Escolha pelo número/código" in printed
 
     def test_build_conversation_history_rows_returns_selector_data(self) -> None:
         """Testa montagem de linhas para futuro seletor de histórico."""
@@ -1473,10 +1568,53 @@ class TestHistoryCommand:
                             result = chat_command(args)
 
                     assert result == 0
-                    history.assert_called_once_with(mock_client)
+                    history.assert_called_once_with(mock_client, None)
                     mock_client.list_messages.assert_called_once_with(
                         "123e4567-e89b-12d3-a456-426614174000", limit=10
                     )
+
+
+    def test_history_command_passes_prompt_session_to_selector(self) -> None:
+        """Testa que /history preserva o modo interativo por setas."""
+        args = argparse.Namespace(
+            api_url=None,
+            token=None,
+            title=None,
+            conversation_id="123e4567-e89b-12d3-a456-426614174000",
+            show_last=0,
+            stream=False,
+        )
+        prompt_session = object()
+
+        with patch("labia_chat.cli.resolve_api_url", return_value="http://example.com"):
+            with patch(INTERACTIVE_TOKEN_RESOLVER, return_value="test-token"):
+                with patch("labia_chat.cli.CLIClient") as MockClient:
+                    mock_client = MagicMock()
+                    MockClient.return_value = mock_client
+                    mock_client.validate_token.return_value = {"username": "testuser"}
+                    mock_client.get_conversation.return_value = {
+                        "id": "123e4567-e89b-12d3-a456-426614174000",
+                        "title": "Conversa",
+                        "created_at": "2024-01-01T00:00:00Z",
+                        "updated_at": "2024-01-01T00:00:00Z",
+                        "archived_at": None,
+                    }
+
+                    with patch(
+                        "labia_chat.cli.create_chat_prompt_session",
+                        return_value=prompt_session,
+                    ):
+                        with patch(
+                            "labia_chat.cli.read_chat_input",
+                            side_effect=["/history", "/exit"],
+                        ):
+                            with patch(
+                                "labia_chat.cli.handle_conversation_history"
+                            ) as history:
+                                result = chat_command(args)
+
+        assert result == 0
+        history.assert_called_once_with(mock_client, prompt_session)
 
     def test_history_command_error(self) -> None:
         """Testa comando /history com erro no backend."""
@@ -1528,7 +1666,7 @@ class TestHistoryCommand:
                             result = chat_command(args)
 
                     assert result == 0
-                    history.assert_called_once_with(mock_client)
+                    history.assert_called_once_with(mock_client, None)
 
     def test_preserve_new_conversation_flow(self) -> None:
         """Testa que nova conversa é criada quando não há --conversation-id."""

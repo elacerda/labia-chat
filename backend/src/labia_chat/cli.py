@@ -725,8 +725,8 @@ def prompt_conversation_history_action_fallback(rows: list[dict]) -> dict:
     """
     print_conversation_history_table(rows)
     selection = input(
-        "Escolha uma conversa pelo número ou código; "
-        "use d <número/código> para remover; Enter cancela: "
+        "Escolha pelo número/código; use d <número/código> para remover; "
+        "Enter cancela: "
     )
     if not selection.strip():
         return conversation_history_action("cancel")
@@ -750,13 +750,18 @@ def prompt_conversation_history_row_fallback(rows: list[dict]) -> dict | None:
     return None
 
 
-def select_conversation_history_action(rows: list[dict]) -> dict:
+def select_conversation_history_action(
+    rows: list[dict],
+    prefer_interactive: bool = False,
+) -> dict:
     """Select one action from prepared conversation history data.
 
     Parameters
     ----------
     rows : list[dict]
         Prepared conversation rows.
+    prefer_interactive : bool, optional
+        Try the prompt-toolkit selector even when stdin is not a TTY.
 
     Returns
     -------
@@ -767,11 +772,14 @@ def select_conversation_history_action(rows: list[dict]) -> dict:
         print_info("Nenhuma conversa encontrada.")
         return conversation_history_action("cancel")
 
-    if sys.stdin.isatty():
+    if prefer_interactive or sys.stdin.isatty():
         try:
             return prompt_conversation_history_action(rows)
-        except ImportError:
-            pass
+        except Exception:  # noqa: BLE001
+            print_info(
+                "Seletor interativo indisponível. "
+                "Usando seleção por número/código."
+            )
 
     return prompt_conversation_history_action_fallback(rows)
 
@@ -847,13 +855,18 @@ def remove_conversation_history_row(client: CLIClient, row: dict) -> bool:
     return True
 
 
-def handle_conversation_history(client: CLIClient) -> None:
+def handle_conversation_history(
+    client: CLIClient,
+    prompt_session: Any | None = None,
+) -> None:
     """Open the interactive conversation history selector.
 
     Parameters
     ----------
     client : CLIClient
         Authenticated CLI client used to list and open conversations.
+    prompt_session : Any | None, optional
+        Active chat prompt session, when running in the interactive chat.
     """
     while True:
         rows = build_conversation_history_rows(client, CONVERSATION_HISTORY_LIMIT)
@@ -861,7 +874,10 @@ def handle_conversation_history(client: CLIClient) -> None:
             print_info("Nenhuma conversa encontrada.")
             return
 
-        action = select_conversation_history_action(rows)
+        action = select_conversation_history_action(
+            rows,
+            prefer_interactive=prompt_session is not None,
+        )
         action_name = action.get("action")
         selected_row = action.get("row")
 
@@ -1580,7 +1596,7 @@ def chat_command(args: argparse.Namespace) -> int:
 
             if normalized_input == "/history":
                 try:
-                    handle_conversation_history(client)
+                    handle_conversation_history(client, prompt_session)
                 except CLI_HANDLED_ERRORS as e:
                     print_cli_error(e, "ao carregar histórico")
                     print()
