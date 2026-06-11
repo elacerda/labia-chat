@@ -1,6 +1,8 @@
 """Helper module for CLI terminal styling using Rich."""
 
 from rich.console import Console, Group
+from rich.live import Live
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -165,11 +167,6 @@ def print_new_conversation_success(
     console.print()
 
 
-def print_streaming_start() -> None:
-    """Print indicator that streaming is starting."""
-    console.print("[assistant]Assistente[/assistant]: ", end="")
-
-
 def print_error(message: str) -> None:
     """Print an error message."""
     console.print()
@@ -209,7 +206,28 @@ def print_user_message(content: str) -> None:
 def print_assistant_message(content: str) -> None:
     """Print an assistant message with proper styling."""
     console.print()
-    console.print(Panel(content, border_style="green", padding=(0, 2)))
+    console.print(Panel(Markdown(content), border_style="green", padding=(0, 2)))
+    console.print()
+
+
+def print_stream_chunks_markdown(chunks) -> None:
+    """Print streaming assistant chunks as progressively rendered Markdown."""
+    content = ""
+    panel_title = "[assistant]Assistente[/assistant]"
+
+    with Live(console=console, refresh_per_second=12) as live:
+        for chunk in chunks:
+            content += chunk
+            live.update(
+                Panel(
+                    Markdown(content),
+                    title=panel_title,
+                    title_align="left",
+                    border_style="green",
+                    padding=(0, 2),
+                )
+            )
+
     console.print()
 
 

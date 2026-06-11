@@ -40,7 +40,7 @@ from labia_chat.cli_ui import (
     print_history_header,
     print_info,
     print_new_conversation_success,
-    print_streaming_start,
+    print_stream_chunks_markdown,
     print_user_label,
     print_user_message,
 )
@@ -525,10 +525,8 @@ def doctor_command(args: argparse.Namespace) -> int:
 
 
 def print_stream_chunks(chunks) -> None:
-    """Imprime chunks de streaming sem buffering de linha."""
-    for chunk in chunks:
-        print(chunk, end="", flush=True)
-    print()
+    """Imprime chunks de streaming como Markdown renderizado."""
+    print_stream_chunks_markdown(chunks)
 
 
 def format_datetime(dt_str: str) -> str:
@@ -827,7 +825,9 @@ def chat_send_command(args: argparse.Namespace) -> int:
         # Envia a mensagem
         try:
             if getattr(args, "stream", False):
-                print_stream_chunks(client.stream_generate_message(args.message))
+                print_stream_chunks_markdown(
+                    client.stream_generate_message(args.message)
+                )
             else:
                 response = client.generate_message(args.message)
                 print_assistant_response(response)
@@ -997,8 +997,9 @@ def chat_command(args: argparse.Namespace) -> int:
             # Send message to model (only for non-slash commands)
             try:
                 if stream:
-                    print_streaming_start()
-                    print_stream_chunks(client.stream_generate_message(normalized_input))
+                    print_stream_chunks_markdown(
+                        client.stream_generate_message(normalized_input)
+                    )
                     print()
                 else:
                     response = client.generate_message(normalized_input)
