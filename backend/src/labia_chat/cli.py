@@ -43,6 +43,7 @@ from labia_chat.cli_config import (
 from labia_chat.cli_ui import (
     print_assistant_message,
     print_banner,
+    print_conversation_history_table,
     print_error,
     print_history_header,
     print_info,
@@ -55,6 +56,9 @@ from labia_chat.cli_ui import (
 )
 
 DEFAULT_CHAT_TITLE = "CLI chat"
+MESSAGE_PAGE_SIZE = 200
+CONVERSATION_HISTORY_LIMIT = 20
+CONVERSATION_TITLE_MAX_LENGTH = 60
 DOCTOR_HINT = "Sugestão: execute `labia-chat doctor` para diagnosticar o ambiente."
 CLI_HANDLED_ERRORS = (
     AuthError,
@@ -331,6 +335,587 @@ def get_most_recent_conversation(client: CLIClient) -> str | None:
 
     return conversation_id
 
+
+def conversation_short_code(conversation_id: str) -> str:
+    """Return a compact deterministic conversation code.
+
+    Parameters
+    ----------
+    conversation_id : str
+        Full conversation identifier returned by the backend.
+
+    Returns
+    -------
+    str
+        First eight characters when present, otherwise the original value.
+    """
+    return conversation_id[:8]
+
+
+def is_useful_conversation_title(title: str | None) -> bool:
+    """Return whether a conversation title is useful for display.
+
+    Parameters
+    ----------
+    title : str | None
+        Conversation title returned by the backend.
+
+    Returns
+    -------
+    bool
+        True when the title has non-generic visible text.
+    """
+    if title is None:
+        return False
+
+    normalized_title = " ".join(title.split())
+    return bool(normalized_title) and normalized_title != DEFAULT_CHAT_TITLE
+
+
+def truncate_conversation_title(
+    text: str,
+    max_length: int = CONVERSATION_TITLE_MAX_LENGTH,
+) -> str:
+    """Normalize and truncate text for conversation title display.
+
+    Parameters
+    ----------
+    text : str
+        Source text used as a display title.
+    max_length : int, optional
+        Maximum number of characters in the returned title.
+
+    Returns
+    -------
+    str
+        Whitespace-normalized title, with ellipsis when truncated.
+    """
+    normalized_text = " ".join(text.split())
+    if len(normalized_text) <= max_length:
+        return normalized_text
+    if max_length <= 3:
+        return "." * max_length
+    return f"{normalized_text[: max_length - 3]}..."
+
+
+def list_all_conversation_messages(
+    client: CLIClient,
+    conversation_id: str,
+    page_size: int = MESSAGE_PAGE_SIZE,
+) -> list[dict]:
+    """Fetch all messages for a conversation using backend pagination.
+
+    Parameters
+    ----------
+    client : CLIClient
+        Authenticated CLI client used to call the backend.
+    conversation_id : str
+        Explicit conversation identifier to load.
+    page_size : int, optional
+        Number of messages requested per backend page.
+
+    Returns
+    -------
+    list[dict]
+        Combined message dictionaries in backend order.
+
+    Raises
+    ------
+    ValueError
+        If ``page_size`` is not positive.
+    """
+    if page_size <= 0:
+        raise ValueError("page_size must be positive")
+
+    messages: list[dict] = []
+    offset = 0
+
+    while True:
+        page = client.list_messages(
+            conversation_id,
+            limit=page_size,
+            offset=offset,
+        )
+        if not page:
+            break
+
+        messages.extend(page)
+        if len(page) < page_size:
+            break
+
+        offset += page_size
+
+    return messages
+
+
+def conversation_display_title(client: CLIClient, conversation: dict) -> str:
+    """Build a display title for a conversation without extra message lookups."""
+    _ = client
+
+    title = conversation.get("title")
+    if is_useful_conversation_title(title):
+        return truncate_conversation_title(str(title))
+
+    metadata = conversation.get("metadata")
+    if isinstance(metadata, dict):
+        for key in (
+            "display_title",
+            "title",
+            "summary",
+            "first_user_message",
+            "first_user_message_preview",
+        ):
+            value = metadata.get(key)
+            if isinstance(value, str) and value.strip():
+                return truncate_conversation_title(value)
+
+    return "Conversa sem título"
+
+def build_conversation_history_rows(
+    client: CLIClient,
+    limit: int = CONVERSATION_HISTORY_LIMIT,
+) -> list[dict]:
+    """Build data rows for the future conversation history selector.
+
+    Parameters
+    ----------
+    client : CLIClient
+        Authenticated CLI client used to list conversations.
+    limit : int, optional
+        Maximum number of recent conversations to include.
+
+    Returns
+    -------
+    list[dict]
+        Row dictionaries with index, id, short code, display title, and date.
+    """
+    conversations = client.list_conversations(limit=limit, offset=0)
+    rows: list[dict] = []
+
+    for index, conversation in enumerate(conversations, start=1):
+        conversation_id = str(conversation.get("id", ""))
+        rows.append(
+            {
+                "index": index,
+                "id": conversation_id,
+                "code": conversation_short_code(conversation_id),
+                "title": conversation_display_title(client, conversation),
+                "updated_at": conversation.get("updated_at")
+                or conversation.get("created_at"),
+            }
+        )
+
+    return rows
+
+
+def resolve_conversation_history_selection(
+    selection: str,
+    rows: list[dict],
+) -> dict | None:
+    """Resolve a history selector entry by number or short code.
+
+    Parameters
+    ----------
+    selection : str
+        Raw user selection from the fallback prompt.
+    rows : list[dict]
+        Prepared conversation rows.
+
+    Returns
+    -------
+    dict | None
+        Matching row, or None when selection is empty or invalid.
+    """
+    normalized_selection = selection.strip()
+    if not normalized_selection:
+        return None
+
+    if normalized_selection.isdigit():
+        selected_index = int(normalized_selection)
+        for row in rows:
+            if row.get("index") == selected_index:
+                return row
+        return None
+
+    for row in rows:
+        if normalized_selection == row.get("code"):
+            return row
+
+    return None
+
+
+def resolve_conversation_history_delete_selection(
+    selection: str,
+    rows: list[dict],
+) -> dict | None:
+    """Resolve a remove-from-history command by number or short code.
+
+    Parameters
+    ----------
+    selection : str
+        Raw selection such as ``d 2`` or ``d abc123``.
+    rows : list[dict]
+        Prepared conversation rows.
+
+    Returns
+    -------
+    dict | None
+        Matching row, or None when the command is invalid.
+    """
+    parts = selection.strip().split(maxsplit=1)
+    if len(parts) != 2 or parts[0].lower() != "d":
+        return None
+    return resolve_conversation_history_selection(parts[1], rows)
+
+
+def conversation_history_action(
+    action: str,
+    row: dict | None = None,
+) -> dict:
+    """Build a normalized history selector action.
+
+    Parameters
+    ----------
+    action : str
+        Action name: open, remove, or cancel.
+    row : dict | None, optional
+        Selected conversation row for open/remove actions.
+
+    Returns
+    -------
+    dict
+        Normalized selector action.
+    """
+    return {"action": action, "row": row}
+
+
+def format_conversation_history_prompt_rows(
+    rows: list[dict],
+    selected_index: int,
+) -> list[tuple[str, str]]:
+    """Build prompt-toolkit fragments for conversation history rows.
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Prepared conversation rows.
+    selected_index : int
+        Zero-based row selected in the prompt-toolkit UI.
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        Formatted text fragments for prompt-toolkit.
+    """
+    fragments = [
+        ("class:title", "Histórico de conversas\n"),
+        ("", "Use ↑/↓ e Enter para abrir, d para remover, q/Esc para sair.\n\n"),
+    ]
+
+    for index, row in enumerate(rows):
+        style = "reverse" if index == selected_index else ""
+        pointer = ">" if index == selected_index else " "
+        timestamp = row.get("updated_at") or ""
+        fragments.append(
+            (
+                style,
+                f"{pointer} {row.get('index', ''):>2} "
+                f"{row.get('code', ''):<8} "
+                f"{row.get('title', '')} "
+                f"{timestamp}\n",
+            )
+        )
+
+    return fragments
+
+
+def prompt_conversation_history_action(rows: list[dict]) -> dict:
+    """Select a history action using prompt-toolkit key bindings.
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Prepared conversation rows.
+
+    Returns
+    -------
+    dict
+        Selector action for open, remove, or cancel.
+    """
+    from prompt_toolkit.application import Application
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.layout import Layout
+    from prompt_toolkit.layout.containers import Window
+    from prompt_toolkit.layout.controls import FormattedTextControl
+
+    selected_index = 0
+    key_bindings = KeyBindings()
+
+    def get_text_fragments() -> list[tuple[str, str]]:
+        return format_conversation_history_prompt_rows(rows, selected_index)
+
+    control = FormattedTextControl(get_text_fragments)
+
+    @key_bindings.add("up")
+    def _(event) -> None:
+        nonlocal selected_index
+        selected_index = max(0, selected_index - 1)
+        event.app.invalidate()
+
+    @key_bindings.add("down")
+    def _(event) -> None:
+        nonlocal selected_index
+        selected_index = min(len(rows) - 1, selected_index + 1)
+        event.app.invalidate()
+
+    @key_bindings.add("enter")
+    def _(event) -> None:
+        event.app.exit(result=conversation_history_action("open", rows[selected_index]))
+
+    @key_bindings.add("d")
+    def _(event) -> None:
+        event.app.exit(
+            result=conversation_history_action("remove", rows[selected_index])
+        )
+
+    @key_bindings.add("q")
+    @key_bindings.add("escape")
+    def _(event) -> None:
+        event.app.exit(result=conversation_history_action("cancel"))
+
+    application = Application(
+        layout=Layout(Window(content=control)),
+        key_bindings=key_bindings,
+        full_screen=False,
+    )
+    return application.run()
+
+
+def prompt_conversation_history_row(rows: list[dict]) -> dict | None:
+    """Select a conversation row using prompt-toolkit key bindings."""
+    action = prompt_conversation_history_action(rows)
+    if action.get("action") == "open":
+        return action.get("row")
+    return None
+
+
+def prompt_conversation_history_action_fallback(rows: list[dict]) -> dict:
+    """Select a history action using plain input().
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Prepared conversation rows.
+
+    Returns
+    -------
+    dict
+        Selector action for open, remove, or cancel.
+    """
+    print_conversation_history_table(rows)
+    selection = input(
+        "Escolha pelo número/código; use d <número/código> para remover; "
+        "Enter cancela: "
+    )
+    if not selection.strip():
+        return conversation_history_action("cancel")
+
+    row_to_remove = resolve_conversation_history_delete_selection(selection, rows)
+    if row_to_remove is not None:
+        return conversation_history_action("remove", row_to_remove)
+
+    row_to_open = resolve_conversation_history_selection(selection, rows)
+    if row_to_open is not None:
+        return conversation_history_action("open", row_to_open)
+
+    return conversation_history_action("cancel")
+
+
+def prompt_conversation_history_row_fallback(rows: list[dict]) -> dict | None:
+    """Select a conversation row using plain input()."""
+    action = prompt_conversation_history_action_fallback(rows)
+    if action.get("action") == "open":
+        return action.get("row")
+    return None
+
+
+def select_conversation_history_action(
+    rows: list[dict],
+    prefer_interactive: bool = False,
+) -> dict:
+    """Select one action from prepared conversation history data.
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Prepared conversation rows.
+    prefer_interactive : bool, optional
+        Try the prompt-toolkit selector even when stdin is not a TTY.
+
+    Returns
+    -------
+    dict
+        Selector action for open, remove, or cancel.
+    """
+    if not rows:
+        print_info("Nenhuma conversa encontrada.")
+        return conversation_history_action("cancel")
+
+    if prefer_interactive or sys.stdin.isatty():
+        try:
+            return prompt_conversation_history_action(rows)
+        except Exception as exc:  # noqa: BLE001
+            print_info(
+                "Seletor interativo indisponível "
+                f"({type(exc).__name__}: {exc}). "
+                "Usando seleção por número/código."
+            )
+
+    return prompt_conversation_history_action_fallback(rows)
+
+
+def select_conversation_history_row(rows: list[dict]) -> dict | None:
+    """Select one row from prepared conversation history data."""
+    action = select_conversation_history_action(rows)
+    if action.get("action") == "open":
+        return action.get("row")
+    return None
+
+
+def open_conversation_history_row(client: CLIClient, row: dict) -> None:
+    """Open a selected conversation and print its full messages.
+
+    Parameters
+    ----------
+    client : CLIClient
+        Authenticated CLI client.
+    row : dict
+        Selected conversation history row.
+    """
+    conversation_id = str(row.get("id", ""))
+    client.conversation_id = conversation_id
+    print_info(
+        f"Conversa selecionada: {row.get('code', '')} — "
+        f"{row.get('title', '')}"
+    )
+
+    messages = list_all_conversation_messages(client, conversation_id)
+    if not messages:
+        print_info("Nenhuma mensagem ainda.")
+        return
+
+    print_messages(messages, len(messages))
+
+
+def remove_conversation_history_row(client: CLIClient, row: dict) -> bool:
+    """Archive a selected conversation after explicit confirmation.
+
+    Parameters
+    ----------
+    client : CLIClient
+        Authenticated CLI client.
+    row : dict
+        Selected conversation history row.
+
+    Returns
+    -------
+    bool
+        True when the conversation was archived, False when cancelled.
+    """
+    conversation_id = str(row.get("id", ""))
+    print_info(
+        f"Remover do histórico: {row.get('code', '')} — "
+        f"{row.get('title', '')}"
+    )
+    confirmation = input(
+        'Digite "apagar" para remover esta conversa do histórico; Enter cancela: '
+    )
+    if confirmation != "apagar":
+        print_info("Remoção cancelada.")
+        return False
+
+    client.archive_conversation(conversation_id)
+    if client.conversation_id == conversation_id:
+        client.conversation_id = None
+        print_info(
+            "A conversa atual foi removida do histórico. "
+            "Crie uma nova conversa com /new ou selecione outra com /history."
+        )
+    print_info("Conversa removida do histórico.")
+    return True
+
+
+
+def drop_conversation_history_row(
+    rows: list[dict],
+    conversation_id: str,
+) -> list[dict]:
+    """Remove a conversation row and reindex the remaining history rows."""
+    kept_rows: list[dict] = []
+
+    for index, row in enumerate(
+        (row for row in rows if row.get("id") != conversation_id),
+        start=1,
+    ):
+        kept_row = dict(row)
+        kept_row["index"] = index
+        kept_rows.append(kept_row)
+
+    return kept_rows
+
+def handle_conversation_history(
+    client: CLIClient,
+    prompt_session: Any | None = None,
+) -> None:
+    """Open the interactive conversation history selector.
+
+    Parameters
+    ----------
+    client : CLIClient
+        Authenticated CLI client used to list and open conversations.
+    prompt_session : Any | None, optional
+        Active chat prompt session, when running in the interactive chat.
+    """
+    rows = build_conversation_history_rows(client, CONVERSATION_HISTORY_LIMIT)
+    if not rows:
+        print_info("Nenhuma conversa encontrada.")
+        return
+
+    while rows:
+        action = select_conversation_history_action(
+            rows,
+            prefer_interactive=prompt_session is not None,
+        )
+        action_name = action.get("action")
+        selected_row = action.get("row")
+
+        if action_name == "open" and selected_row is not None:
+            try:
+                open_conversation_history_row(client, selected_row)
+            except CLI_HANDLED_ERRORS as exc:
+                print_cli_error(exc, "ao abrir conversa")
+                print()
+                continue
+            return
+
+        if action_name == "remove" and selected_row is not None:
+            try:
+                removed = remove_conversation_history_row(client, selected_row)
+            except CLI_HANDLED_ERRORS as exc:
+                print_cli_error(exc, "ao remover conversa")
+                print()
+                continue
+
+            if removed:
+                conversation_id = str(selected_row.get("id") or "")
+                rows = drop_conversation_history_row(rows, conversation_id)
+                if not rows:
+                    print_info("Nenhuma conversa encontrada.")
+                    return
+
+            continue
+
+        return
 
 def validate_resume_last_args(args: argparse.Namespace) -> tuple[bool, str]:
     """
@@ -1039,7 +1624,7 @@ def chat_command(args: argparse.Namespace) -> int:
 
             if normalized_input == "/history":
                 try:
-                    print_chat_history(client, show_last)
+                    handle_conversation_history(client, prompt_session)
                 except CLI_HANDLED_ERRORS as e:
                     print_cli_error(e, "ao carregar histórico")
                     print()
