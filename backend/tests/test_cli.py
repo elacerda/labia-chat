@@ -1457,11 +1457,14 @@ class TestChatSendCommand:
                 ["Olá", ", mundo", "\n"]
             )
 
-            result = chat_send_command(args)
+            with patch("labia_chat.cli.print_stream_chunks_markdown") as print_stream:
+                result = chat_send_command(args)
 
         assert result == 0
-        assert capsys.readouterr().out == "Olá, mundo\n\n"
         mock_client.stream_generate_message.assert_called_once_with("Olá, mundo!")
+        print_stream.assert_called_once_with(
+            mock_client.stream_generate_message.return_value
+        )
         mock_client.generate_message.assert_not_called()
         mock_client.close.assert_called_once()
 
