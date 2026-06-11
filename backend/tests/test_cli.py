@@ -21,6 +21,7 @@ from labia_chat.cli import (
     conversations_create_command,
     conversations_list_command,
     doctor_command,
+    drop_conversation_history_row,
     get_cli_version,
     handle_conversation_history,
     is_useful_conversation_title,
@@ -140,36 +141,34 @@ class TestConversationHistoryHelpers:
         assert title == "Título útil"
         client.list_messages.assert_not_called()
 
-    def test_conversation_display_title_uses_first_user_message_for_generic_title(
+    def test_conversation_display_title_uses_metadata_preview_for_generic_title(
         self,
     ) -> None:
-        """Testa fallback para primeira mensagem de usuário."""
+        """Testa fallback para prévia salva em metadata."""
         client = MagicMock()
-        client.list_messages.return_value = [
-            {"role": "assistant", "content": "Resposta inicial"},
-            {"role": "user", "content": "  Quero analisar espectros   FITS  "},
-            {"role": "user", "content": "Outra pergunta"},
-        ]
 
         title = conversation_display_title(
             client,
-            {"id": "conv-1", "title": "CLI chat"},
+            {
+                "id": "conv-1",
+                "title": "CLI chat",
+                "metadata": {
+                    "first_user_message_preview": "  Quero analisar espectros   FITS  "
+                },
+            },
         )
 
         assert title == "Quero analisar espectros FITS"
-        client.list_messages.assert_called_once_with("conv-1", limit=10, offset=0)
+        client.list_messages.assert_not_called()
 
-    def test_conversation_display_title_falls_back_without_messages(self) -> None:
-        """Testa fallback quando não há título útil nem mensagem de usuário."""
+    def test_conversation_display_title_falls_back_without_metadata(self) -> None:
+        """Testa fallback quando não há título útil nem metadata de prévia."""
         client = MagicMock()
-        client.list_messages.return_value = [
-            {"role": "assistant", "content": "Olá"},
-            {"role": "user", "content": "   "},
-        ]
 
         title = conversation_display_title(client, {"id": "conv-1", "title": None})
 
-        assert title == "Conversa sem mensagens"
+        assert title == "Conversa sem título"
+        client.list_messages.assert_not_called()
 
     def test_list_all_conversation_messages_uses_increasing_offsets(self) -> None:
         """Testa paginação completa de mensagens da conversa explícita."""
@@ -337,36 +336,38 @@ class TestConversationHistoryHelpers:
 
         assert client.conversation_id is None
 
-    def test_handle_conversation_history_reloads_rows_after_removal(self) -> None:
-        """Testa recarga das linhas após remoção confirmada."""
+    def test_handle_conversation_history_removes_row_locally_after_removal(
+        self,
+    ) -> None:
+        """Testa remoção local das linhas após remoção confirmada."""
         client = MagicMock()
-        first_rows = [
+        rows = [
             {"index": 1, "id": "conv-1", "code": "conv-1", "title": "Uma"},
             {"index": 2, "id": "conv-2", "code": "conv-2", "title": "Duas"},
-        ]
-        second_rows = [
-            {"index": 1, "id": "conv-2", "code": "conv-2", "title": "Duas"},
         ]
 
         with patch(
             "labia_chat.cli.build_conversation_history_rows",
-            side_effect=[first_rows, second_rows],
+            return_value=rows,
         ) as build_rows:
             with patch(
                 "labia_chat.cli.select_conversation_history_action",
                 side_effect=[
-                    {"action": "remove", "row": first_rows[0]},
+                    {"action": "remove", "row": rows[0]},
                     {"action": "cancel", "row": None},
                 ],
-            ):
+            ) as select_action:
                 with patch(
                     "labia_chat.cli.remove_conversation_history_row",
                     return_value=True,
                 ) as remove_row:
                     handle_conversation_history(client)
 
-        assert build_rows.call_count == 2
-        remove_row.assert_called_once_with(client, first_rows[0])
+        build_rows.assert_called_once_with(client, 20)
+        remove_row.assert_called_once_with(client, rows[0])
+        assert select_action.call_args_list[1].args[0] == [
+            {"index": 1, "id": "conv-2", "code": "conv-2", "title": "Duas"},
+        ]
 
     def test_prompt_conversation_history_action_fallback_supports_delete_index(
         self,
@@ -526,11 +527,12 @@ class TestConversationHistoryHelpers:
                 "index": 2,
                 "id": "abcdef",
                 "code": "abcdef",
-                "title": "Pergunta inicial",
+                "title": "Conversa sem título",
                 "updated_at": "2026-06-09T12:00:00Z",
             },
         ]
         client.list_conversations.assert_called_once_with(limit=2, offset=0)
+        client.list_messages.assert_not_called()
 
 
 class TestResolveApiUrl:
@@ -750,6 +752,31 @@ class TestConfigShowCommand:
         assert "env-secret" not in output
         assert "Status do token: configurado" in output
         assert "Origem do token: env" in output
+
+
+class TestConversationHistoryRowRemoval:
+    """Testes de remoção local de linhas do histórico de conversas."""
+
+    def test_drop_conversation_history_row_removes_and_reindexes(self) -> None:
+        """Testa remoção local de uma conversa do seletor."""
+        rows = [
+            {"index": 1, "id": "conv-1", "code": "conv-1", "title": "A"},
+            {"index": 2, "id": "conv-2", "code": "conv-2", "title": "B"},
+            {"index": 3, "id": "conv-3", "code": "conv-3", "title": "C"},
+        ]
+
+        assert drop_conversation_history_row(rows, "conv-2") == [
+            {"index": 1, "id": "conv-1", "code": "conv-1", "title": "A"},
+            {"index": 2, "id": "conv-3", "code": "conv-3", "title": "C"},
+        ]
+
+    def test_drop_conversation_history_row_keeps_rows_when_missing(self) -> None:
+        """Testa remoção local quando a conversa não está na lista."""
+        rows = [
+            {"index": 1, "id": "conv-1", "code": "conv-1", "title": "A"},
+        ]
+
+        assert drop_conversation_history_row(rows, "missing") == rows
 
 
 class TestChatConfigDefaults:

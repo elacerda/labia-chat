@@ -449,38 +449,27 @@ def list_all_conversation_messages(
 
 
 def conversation_display_title(client: CLIClient, conversation: dict) -> str:
-    """Derive the display title for a conversation row.
+    """Build a display title for a conversation without extra message lookups."""
+    _ = client
 
-    Parameters
-    ----------
-    client : CLIClient
-        Authenticated CLI client used to fetch messages when needed.
-    conversation : dict
-        Conversation dictionary returned by the backend.
-
-    Returns
-    -------
-    str
-        Truncated title suitable for a future history selector row.
-    """
     title = conversation.get("title")
     if is_useful_conversation_title(title):
         return truncate_conversation_title(str(title))
 
-    conversation_id = conversation.get("id", "")
-    messages = client.list_messages(str(conversation_id), limit=10, offset=0)
-    for message in messages:
-        if message.get("role") != "user":
-            continue
+    metadata = conversation.get("metadata")
+    if isinstance(metadata, dict):
+        for key in (
+            "display_title",
+            "title",
+            "summary",
+            "first_user_message",
+            "first_user_message_preview",
+        ):
+            value = metadata.get(key)
+            if isinstance(value, str) and value.strip():
+                return truncate_conversation_title(value)
 
-        content = message.get("content")
-        if not isinstance(content, str) or not " ".join(content.split()):
-            continue
-
-        return truncate_conversation_title(content)
-
-    return truncate_conversation_title("Conversa sem mensagens")
-
+    return "Conversa sem título"
 
 def build_conversation_history_rows(
     client: CLIClient,
@@ -775,9 +764,10 @@ def select_conversation_history_action(
     if prefer_interactive or sys.stdin.isatty():
         try:
             return prompt_conversation_history_action(rows)
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             print_info(
-                "Seletor interativo indisponível. "
+                "Seletor interativo indisponível "
+                f"({type(exc).__name__}: {exc}). "
                 "Usando seleção por número/código."
             )
 
@@ -855,6 +845,24 @@ def remove_conversation_history_row(client: CLIClient, row: dict) -> bool:
     return True
 
 
+
+def drop_conversation_history_row(
+    rows: list[dict],
+    conversation_id: str,
+) -> list[dict]:
+    """Remove a conversation row and reindex the remaining history rows."""
+    kept_rows: list[dict] = []
+
+    for index, row in enumerate(
+        (row for row in rows if row.get("id") != conversation_id),
+        start=1,
+    ):
+        kept_row = dict(row)
+        kept_row["index"] = index
+        kept_rows.append(kept_row)
+
+    return kept_rows
+
 def handle_conversation_history(
     client: CLIClient,
     prompt_session: Any | None = None,
@@ -868,12 +876,12 @@ def handle_conversation_history(
     prompt_session : Any | None, optional
         Active chat prompt session, when running in the interactive chat.
     """
-    while True:
-        rows = build_conversation_history_rows(client, CONVERSATION_HISTORY_LIMIT)
-        if not rows:
-            print_info("Nenhuma conversa encontrada.")
-            return
+    rows = build_conversation_history_rows(client, CONVERSATION_HISTORY_LIMIT)
+    if not rows:
+        print_info("Nenhuma conversa encontrada.")
+        return
 
+    while rows:
         action = select_conversation_history_action(
             rows,
             prefer_interactive=prompt_session is not None,
@@ -882,11 +890,31 @@ def handle_conversation_history(
         selected_row = action.get("row")
 
         if action_name == "open" and selected_row is not None:
-            open_conversation_history_row(client, selected_row)
+            try:
+                open_conversation_history_row(client, selected_row)
+            except CLI_HANDLED_ERRORS as exc:
+                print_cli_error(exc, "ao abrir conversa")
+                print()
+                continue
             return
+
         if action_name == "remove" and selected_row is not None:
-            remove_conversation_history_row(client, selected_row)
+            try:
+                removed = remove_conversation_history_row(client, selected_row)
+            except CLI_HANDLED_ERRORS as exc:
+                print_cli_error(exc, "ao remover conversa")
+                print()
+                continue
+
+            if removed:
+                conversation_id = str(selected_row.get("id") or "")
+                rows = drop_conversation_history_row(rows, conversation_id)
+                if not rows:
+                    print_info("Nenhuma conversa encontrada.")
+                    return
+
             continue
+
         return
 
 def validate_resume_last_args(args: argparse.Namespace) -> tuple[bool, str]:
