@@ -592,6 +592,7 @@ def conversation_history_action(
 def format_conversation_history_prompt_rows(
     rows: list[dict],
     selected_index: int,
+    selected_ids: set[str] | None = None,
 ) -> list[tuple[str, str]]:
     """Build prompt-toolkit fragments for conversation history rows.
 
@@ -601,25 +602,36 @@ def format_conversation_history_prompt_rows(
         Prepared conversation rows.
     selected_index : int
         Zero-based row selected in the prompt-toolkit UI.
+    selected_ids : set[str] | None, optional
+        Set of selected conversation IDs. If None, treated as empty set.
 
     Returns
     -------
     list[tuple[str, str]]
         Formatted text fragments for prompt-toolkit.
     """
+    if selected_ids is None:
+        selected_ids = set()
+
     fragments = [
         ("class:title", "Histórico de conversas\n"),
-        ("", "Use ↑/↓ e Enter para abrir, d para remover, q/Esc para sair.\n\n"),
+        (
+            "",
+            "Use ↑/↓ para navegar, Space para marcar, "
+            "d para remover, q/Esc para sair.\n\n",
+        ),
     ]
 
     for index, row in enumerate(rows):
+        is_selected = row.get("id") in selected_ids
+        mark = "[x]" if is_selected else "[ ]"
         style = "reverse" if index == selected_index else ""
         pointer = ">" if index == selected_index else " "
         timestamp = row.get("updated_at") or ""
         fragments.append(
             (
                 style,
-                f"{pointer} {row.get('index', ''):>2} "
+                f"{pointer} {mark} {row.get('index', ''):>2} "
                 f"{row.get('code', ''):<8} "
                 f"{row.get('title', '')} "
                 f"{timestamp}\n",
@@ -629,19 +641,108 @@ def format_conversation_history_prompt_rows(
     return fragments
 
 
-def prompt_conversation_history_action(rows: list[dict]) -> dict:
+def conversation_history_removal_targets(
+    rows: list[dict],
+    selected_index: int,
+    selected_ids: set[str],
+) -> list[dict]:
+    """Return rows to remove based on selection state.
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Prepared conversation rows.
+    selected_index : int
+        Zero-based row selected in the prompt-toolkit UI.
+    selected_ids : set[str]
+        Set of selected conversation IDs.
+
+    Returns
+    -------
+    list[dict]
+        Rows to remove. Returns marked rows if any, otherwise the highlighted row.
+    """
+    if selected_ids:
+        return [row for row in rows if row.get("id") in selected_ids]
+    return [rows[selected_index]]
+
+
+def confirm_conversation_history_removal(rows: list[dict]) -> bool:
+    """Ask for confirmation before removing conversation(s).
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Rows to be removed.
+
+    Returns
+    -------
+    bool
+        True if user typed exactly 'apagar', False otherwise.
+    """
+    count = len(rows)
+    if count == 1:
+        print_info("Remover 1 conversa do histórico?")
+    else:
+        print_info(f"Remover {count} conversas do histórico?")
+    confirmation = input("Digite 'apagar' para confirmar; Enter cancela: ")
+    return confirmation == "apagar"
+
+
+def remove_conversation_history_rows(
+    client: CLIClient, rows: list[dict]
+) -> tuple[list[dict], list[dict]]:
+    """Archive multiple conversations and return removed/failed rows.
+
+    Parameters
+    ----------
+    client : CLIClient
+        Authenticated CLI client.
+    rows : list[dict]
+        Rows to remove.
+
+    Returns
+    -------
+    tuple[list[dict], list[dict]]
+        Tuple of (removed_rows, failed_rows).
+    """
+    removed_rows: list[dict] = []
+    failed_rows: list[dict] = []
+
+    for row in rows:
+        conversation_id = str(row.get("id", ""))
+        try:
+            client.archive_conversation(conversation_id)
+            removed_rows.append(row)
+        except Exception:
+            failed_rows.append(row)
+
+    return removed_rows, failed_rows
+
+
+def prompt_conversation_history_action(
+    rows: list[dict],
+    selected_ids: set[str] | None = None,
+) -> dict:
     """Select a history action using prompt-toolkit key bindings.
 
     Parameters
     ----------
     rows : list[dict]
         Prepared conversation rows.
+    selected_ids : set[str] | None, optional
+        Set of selected conversation IDs. If None, treated as empty set.
 
     Returns
     -------
     dict
         Selector action for open, remove, or cancel.
     """
+    if selected_ids is None:
+        selected_ids_set: set[str] = set()
+    else:
+        selected_ids_set = selected_ids
+
     from prompt_toolkit.application import Application
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.layout import Layout
@@ -652,7 +753,9 @@ def prompt_conversation_history_action(rows: list[dict]) -> dict:
     key_bindings = KeyBindings()
 
     def get_text_fragments() -> list[tuple[str, str]]:
-        return format_conversation_history_prompt_rows(rows, selected_index)
+        return format_conversation_history_prompt_rows(
+            rows, selected_index, selected_ids_set
+        )
 
     control = FormattedTextControl(get_text_fragments)
 
@@ -668,14 +771,32 @@ def prompt_conversation_history_action(rows: list[dict]) -> dict:
         selected_index = min(len(rows) - 1, selected_index + 1)
         event.app.invalidate()
 
+    @key_bindings.add("space")
+    def _(event) -> None:
+        nonlocal selected_index, selected_ids_set
+        row_id = rows[selected_index].get("id")
+        if isinstance(row_id, str):
+            if row_id in selected_ids_set:
+                selected_ids_set.discard(row_id)
+            else:
+                selected_ids_set.add(row_id)
+        event.app.invalidate()
+
     @key_bindings.add("enter")
     def _(event) -> None:
         event.app.exit(result=conversation_history_action("open", rows[selected_index]))
 
     @key_bindings.add("d")
     def _(event) -> None:
+        targets = conversation_history_removal_targets(
+            rows, selected_index, selected_ids_set
+        )
         event.app.exit(
-            result=conversation_history_action("remove", rows[selected_index])
+            result={
+                "action": "remove",
+                "row": targets[0] if targets else None,
+                "rows": targets,
+            }
         )
 
     @key_bindings.add("q")
@@ -898,24 +1019,69 @@ def handle_conversation_history(
                 continue
             return
 
-        if action_name == "remove" and selected_row is not None:
-            try:
-                removed = remove_conversation_history_row(client, selected_row)
-            except CLI_HANDLED_ERRORS as exc:
-                print_cli_error(exc, "ao remover conversa")
-                print()
+        if action_name == "remove":
+            target_rows = action.get("rows") or (
+                [selected_row] if selected_row is not None else []
+            )
+            if not target_rows:
                 continue
 
+            if not confirm_conversation_history_removal(target_rows):
+                print_info("Remoção cancelada.")
+                continue
+
+            removed, failed = remove_conversation_history_rows(client, target_rows)
+
             if removed:
-                conversation_id = str(selected_row.get("id") or "")
-                rows = drop_conversation_history_row(rows, conversation_id)
+                removed_ids = {
+                    str(row.get("id") or "")
+                    for row in removed
+                    if row.get("id")
+                }
+                rows = drop_conversation_history_rows(rows, removed_ids)
                 if not rows:
                     print_info("Nenhuma conversa encontrada.")
                     return
 
+            for failed_row in failed:
+                print_error(
+                    "Falha ao remover conversa: "
+                    f"{failed_row.get('code', '')} — {failed_row.get('title', '')}"
+                )
+
             continue
 
         return
+
+
+def drop_conversation_history_rows(
+    rows: list[dict],
+    conversation_ids: set[str],
+) -> list[dict]:
+    """Remove multiple conversation rows and reindex the remaining history rows.
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Current conversation history rows.
+    conversation_ids : set[str]
+        IDs of conversations to remove.
+
+    Returns
+    -------
+    list[dict]
+        New list of rows with removed IDs dropped and reindexed.
+    """
+    kept_rows: list[dict] = []
+
+    for row in rows:
+        if row.get("id") not in conversation_ids:
+            kept_row = dict(row)
+            kept_row["index"] = len(kept_rows) + 1
+            kept_rows.append(kept_row)
+
+    return kept_rows
+
 
 def validate_resume_last_args(args: argparse.Namespace) -> tuple[bool, str]:
     """

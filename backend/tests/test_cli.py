@@ -335,6 +335,39 @@ class TestConversationHistoryHelpers:
                 remove_conversation_history_row(client, row)
 
         assert client.conversation_id is None
+    def test_handle_conversation_history_cancelled_removal_does_not_archive(
+        self,
+    ) -> None:
+        """Testa que remoção cancelada não chama backend."""
+        client = MagicMock()
+        rows = [
+            {"index": 1, "id": "conv-1", "code": "conv-1", "title": "Uma"},
+            {"index": 2, "id": "conv-2", "code": "conv-2", "title": "Duas"},
+        ]
+
+        with patch(
+            "labia_chat.cli.build_conversation_history_rows",
+            return_value=rows,
+        ):
+            with patch(
+                "labia_chat.cli.select_conversation_history_action",
+                side_effect=[
+                    {"action": "remove", "row": rows[0], "rows": [rows[0]]},
+                    {"action": "cancel", "row": None},
+                ],
+            ):
+                with patch(
+                    "labia_chat.cli.confirm_conversation_history_removal",
+                    return_value=False,
+                ) as confirm_removal:
+                    with patch(
+                        "labia_chat.cli.remove_conversation_history_rows",
+                    ) as remove_rows:
+                        handle_conversation_history(client)
+
+        confirm_removal.assert_called_once_with([rows[0]])
+        remove_rows.assert_not_called()
+
 
     def test_handle_conversation_history_removes_row_locally_after_removal(
         self,
@@ -358,13 +391,18 @@ class TestConversationHistoryHelpers:
                 ],
             ) as select_action:
                 with patch(
-                    "labia_chat.cli.remove_conversation_history_row",
+                    "labia_chat.cli.confirm_conversation_history_removal",
                     return_value=True,
-                ) as remove_row:
-                    handle_conversation_history(client)
+                ) as confirm_removal:
+                    with patch(
+                        "labia_chat.cli.remove_conversation_history_rows",
+                        return_value=([rows[0]], []),
+                    ) as remove_rows:
+                        handle_conversation_history(client)
 
         build_rows.assert_called_once_with(client, 20)
-        remove_row.assert_called_once_with(client, rows[0])
+        confirm_removal.assert_called_once_with([rows[0]])
+        remove_rows.assert_called_once_with(client, [rows[0]])
         assert select_action.call_args_list[1].args[0] == [
             {"index": 1, "id": "conv-2", "code": "conv-2", "title": "Duas"},
         ]
