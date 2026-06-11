@@ -206,10 +206,40 @@ def print_user_message(content: str) -> None:
     console.print()
 
 
+def build_assistant_markdown_panel(
+    content: str, title: str | None = None
+) -> Panel:
+    """Build a Markdown panel for assistant output.
+
+    Parameters
+    ----------
+    content : str
+        Markdown content rendered inside the panel.
+    title : str | None, optional
+        Optional Rich markup title displayed on the panel.
+
+    Returns
+    -------
+    Panel
+        Rich panel configured for assistant Markdown output.
+    """
+    title_options = {}
+    if title is not None:
+        title_options = {"title": title, "title_align": "left"}
+
+    return Panel(
+        Markdown(content),
+        border_style="green",
+        padding=(0, 2),
+        safe_box=True,
+        **title_options,
+    )
+
+
 def print_assistant_message(content: str) -> None:
     """Print an assistant message with proper styling."""
     console.print()
-    console.print(Panel(Markdown(content), border_style="green", padding=(0, 2)))
+    console.print(build_assistant_markdown_panel(content))
     console.print()
 
 
@@ -218,19 +248,15 @@ def print_stream_chunks_markdown(chunks) -> None:
     content = ""
     panel_title = "[assistant]Assistente[/assistant]"
 
-    with Live(console=console, refresh_per_second=12) as live:
+    with Live(console=console, refresh_per_second=12, transient=True) as live:
         for chunk in chunks:
             content += chunk
             live.update(
-                Panel(
-                    Markdown(content),
-                    title=panel_title,
-                    title_align="left",
-                    border_style="green",
-                    padding=(0, 2),
-                )
+                build_assistant_markdown_panel(content, title=panel_title),
+                refresh=True,
             )
 
+    console.print(build_assistant_markdown_panel(content, title=panel_title))
     console.print()
 
 

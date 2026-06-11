@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from labia_chat import __version__
+from labia_chat import __version__, cli_ui
 from labia_chat.cli import (
     auth_me_command,
     chat_command,
@@ -37,6 +37,53 @@ from labia_chat.cli_client import (
 from labia_chat.cli_config import DEFAULT_API_URL, save_config
 
 INTERACTIVE_TOKEN_RESOLVER = "labia_chat.cli.resolve_interactive_chat_token"
+
+
+class TestCliUiMarkdownPanels:
+    """Testes dos painéis Markdown renderizados pelo CLI."""
+
+    def test_build_assistant_markdown_panel_uses_stable_options(self) -> None:
+        """Testa que o painel do assistente usa Markdown e safe_box."""
+        panel = cli_ui.build_assistant_markdown_panel(
+            "Olá 😀 **mundo**",
+            title="[assistant]Assistente[/assistant]",
+        )
+
+        assert panel.border_style == "green"
+        assert panel.padding == (0, 2)
+        assert panel.safe_box is True
+        assert panel.title == "[assistant]Assistente[/assistant]"
+        assert panel.title_align == "left"
+        assert panel.renderable.markup == "Olá 😀 **mundo**"
+
+    def test_print_stream_chunks_markdown_updates_live_and_prints_final_panel(
+        self,
+    ) -> None:
+        """Testa streaming progressivo e painel final combinado."""
+        live = MagicMock()
+
+        with patch.object(cli_ui, "Live") as MockLive:
+            MockLive.return_value.__enter__.return_value = live
+
+            with patch.object(cli_ui.console, "print") as print_mock:
+                cli_ui.print_stream_chunks_markdown(iter(["Olá", " 😀", " **fim**"]))
+
+        MockLive.assert_called_once_with(
+            console=cli_ui.console,
+            refresh_per_second=12,
+            transient=True,
+        )
+        assert live.update.call_count == 3
+        assert all(
+            call.kwargs["refresh"] is True for call in live.update.call_args_list
+        )
+
+        final_panel = print_mock.call_args_list[0].args[0]
+        assert final_panel.renderable.markup == "Olá 😀 **fim**"
+        assert final_panel.border_style == "green"
+        assert final_panel.padding == (0, 2)
+        assert final_panel.safe_box is True
+        assert print_mock.call_args_list[1].args == ()
 
 
 class TestResolveApiUrl:
