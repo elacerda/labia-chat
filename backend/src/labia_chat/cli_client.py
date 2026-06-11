@@ -398,6 +398,54 @@ class CLIClient:
         except httpx.NetworkError:
             raise ConnectionError("Falha de conexão com o backend. Verifique sua rede.")
 
+    def archive_conversation(self, conversation_id: str) -> dict:
+        """Arquiva uma conversa via POST /chat/conversations/{id}/archive.
+
+        Args:
+            conversation_id: ID da conversa.
+
+        Returns:
+            dict: Dados da conversa arquivada.
+
+        Raises:
+            AuthError: Se o token for inválido (401).
+            PermissionError: Se o usuário não tiver permissão (403).
+            NotFoundError: Se a conversa não for encontrada (404).
+            ValidationError: Se houver erro de validação (422).
+            BackendError: Se houver erro no backend (502/503).
+            ConnectionError: Se não conseguir conectar ao backend.
+        """
+        try:
+            client = self._get_client()
+            response = client.post(
+                f"/chat/conversations/{conversation_id}/archive"
+            )
+            response.raise_for_status()
+            data = response.json()
+            if not isinstance(data, dict):
+                raise BackendError("Resposta inesperada do backend. Tente novamente.")
+            return data
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 401:
+                raise AuthError(
+                    "Token inválido ou expirado. Gere um novo token AI-Scope."
+                )
+            elif exc.response.status_code == 403:
+                raise PermissionError(CHAT_ACCESS_DENIED_MESSAGE)
+            elif exc.response.status_code == 404:
+                raise NotFoundError("Conversa não encontrada para este usuário.")
+            elif exc.response.status_code == 422:
+                raise ValidationError(
+                    "Dados inválidos. Verifique a entrada e tente novamente."
+                )
+            elif exc.response.status_code in (502, 503):
+                raise BackendError("Backend não conseguiu obter resposta do modelo.")
+            raise
+        except httpx.TimeoutException:
+            raise ConnectionError("Timeout ao conectar ao backend. Tente novamente.")
+        except httpx.NetworkError:
+            raise ConnectionError("Falha de conexão com o backend. Verifique sua rede.")
+
     def generate_message(self, content: str) -> dict:
         """
         Gera uma resposta do assistente via POST /chat/conversations/{id}/generate.

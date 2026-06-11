@@ -555,6 +555,51 @@ def resolve_conversation_history_selection(
     return None
 
 
+def resolve_conversation_history_delete_selection(
+    selection: str,
+    rows: list[dict],
+) -> dict | None:
+    """Resolve a remove-from-history command by number or short code.
+
+    Parameters
+    ----------
+    selection : str
+        Raw selection such as ``d 2`` or ``d abc123``.
+    rows : list[dict]
+        Prepared conversation rows.
+
+    Returns
+    -------
+    dict | None
+        Matching row, or None when the command is invalid.
+    """
+    parts = selection.strip().split(maxsplit=1)
+    if len(parts) != 2 or parts[0].lower() != "d":
+        return None
+    return resolve_conversation_history_selection(parts[1], rows)
+
+
+def conversation_history_action(
+    action: str,
+    row: dict | None = None,
+) -> dict:
+    """Build a normalized history selector action.
+
+    Parameters
+    ----------
+    action : str
+        Action name: open, remove, or cancel.
+    row : dict | None, optional
+        Selected conversation row for open/remove actions.
+
+    Returns
+    -------
+    dict
+        Normalized selector action.
+    """
+    return {"action": action, "row": row}
+
+
 def format_conversation_history_prompt_rows(
     rows: list[dict],
     selected_index: int,
@@ -575,7 +620,7 @@ def format_conversation_history_prompt_rows(
     """
     fragments = [
         ("class:title", "Histórico de conversas\n"),
-        ("", "Use ↑/↓ e Enter para abrir, q/Esc para sair.\n\n"),
+        ("", "Use ↑/↓ e Enter para abrir, d para remover, q/Esc para sair.\n\n"),
     ]
 
     for index, row in enumerate(rows):
@@ -595,8 +640,8 @@ def format_conversation_history_prompt_rows(
     return fragments
 
 
-def prompt_conversation_history_row(rows: list[dict]) -> dict | None:
-    """Select a conversation row using prompt-toolkit key bindings.
+def prompt_conversation_history_action(rows: list[dict]) -> dict:
+    """Select a history action using prompt-toolkit key bindings.
 
     Parameters
     ----------
@@ -605,8 +650,8 @@ def prompt_conversation_history_row(rows: list[dict]) -> dict | None:
 
     Returns
     -------
-    dict | None
-        Selected row, or None when the user cancels.
+    dict
+        Selector action for open, remove, or cancel.
     """
     from prompt_toolkit.application import Application
     from prompt_toolkit.key_binding import KeyBindings
@@ -636,12 +681,18 @@ def prompt_conversation_history_row(rows: list[dict]) -> dict | None:
 
     @key_bindings.add("enter")
     def _(event) -> None:
-        event.app.exit(result=rows[selected_index])
+        event.app.exit(result=conversation_history_action("open", rows[selected_index]))
+
+    @key_bindings.add("d")
+    def _(event) -> None:
+        event.app.exit(
+            result=conversation_history_action("remove", rows[selected_index])
+        )
 
     @key_bindings.add("q")
     @key_bindings.add("escape")
     def _(event) -> None:
-        event.app.exit(result=None)
+        event.app.exit(result=conversation_history_action("cancel"))
 
     application = Application(
         layout=Layout(Window(content=control)),
@@ -651,8 +702,16 @@ def prompt_conversation_history_row(rows: list[dict]) -> dict | None:
     return application.run()
 
 
-def prompt_conversation_history_row_fallback(rows: list[dict]) -> dict | None:
-    """Select a conversation row using plain input().
+def prompt_conversation_history_row(rows: list[dict]) -> dict | None:
+    """Select a conversation row using prompt-toolkit key bindings."""
+    action = prompt_conversation_history_action(rows)
+    if action.get("action") == "open":
+        return action.get("row")
+    return None
+
+
+def prompt_conversation_history_action_fallback(rows: list[dict]) -> dict:
+    """Select a history action using plain input().
 
     Parameters
     ----------
@@ -661,18 +720,38 @@ def prompt_conversation_history_row_fallback(rows: list[dict]) -> dict | None:
 
     Returns
     -------
-    dict | None
-        Selected row, or None when cancelled or invalid.
+    dict
+        Selector action for open, remove, or cancel.
     """
     print_conversation_history_table(rows)
     selection = input(
-        "Escolha uma conversa pelo número ou código; Enter cancela: "
+        "Escolha uma conversa pelo número ou código; "
+        "use d <número/código> para remover; Enter cancela: "
     )
-    return resolve_conversation_history_selection(selection, rows)
+    if not selection.strip():
+        return conversation_history_action("cancel")
+
+    row_to_remove = resolve_conversation_history_delete_selection(selection, rows)
+    if row_to_remove is not None:
+        return conversation_history_action("remove", row_to_remove)
+
+    row_to_open = resolve_conversation_history_selection(selection, rows)
+    if row_to_open is not None:
+        return conversation_history_action("open", row_to_open)
+
+    return conversation_history_action("cancel")
 
 
-def select_conversation_history_row(rows: list[dict]) -> dict | None:
-    """Select one row from prepared conversation history data.
+def prompt_conversation_history_row_fallback(rows: list[dict]) -> dict | None:
+    """Select a conversation row using plain input()."""
+    action = prompt_conversation_history_action_fallback(rows)
+    if action.get("action") == "open":
+        return action.get("row")
+    return None
+
+
+def select_conversation_history_action(rows: list[dict]) -> dict:
+    """Select one action from prepared conversation history data.
 
     Parameters
     ----------
@@ -681,20 +760,28 @@ def select_conversation_history_row(rows: list[dict]) -> dict | None:
 
     Returns
     -------
-    dict | None
-        Selected row, or None when the selector is cancelled.
+    dict
+        Selector action for open, remove, or cancel.
     """
     if not rows:
         print_info("Nenhuma conversa encontrada.")
-        return None
+        return conversation_history_action("cancel")
 
     if sys.stdin.isatty():
         try:
-            return prompt_conversation_history_row(rows)
+            return prompt_conversation_history_action(rows)
         except ImportError:
             pass
 
-    return prompt_conversation_history_row_fallback(rows)
+    return prompt_conversation_history_action_fallback(rows)
+
+
+def select_conversation_history_row(rows: list[dict]) -> dict | None:
+    """Select one row from prepared conversation history data."""
+    action = select_conversation_history_action(rows)
+    if action.get("action") == "open":
+        return action.get("row")
+    return None
 
 
 def open_conversation_history_row(client: CLIClient, row: dict) -> None:
@@ -722,6 +809,44 @@ def open_conversation_history_row(client: CLIClient, row: dict) -> None:
     print_messages(messages, len(messages))
 
 
+def remove_conversation_history_row(client: CLIClient, row: dict) -> bool:
+    """Archive a selected conversation after explicit confirmation.
+
+    Parameters
+    ----------
+    client : CLIClient
+        Authenticated CLI client.
+    row : dict
+        Selected conversation history row.
+
+    Returns
+    -------
+    bool
+        True when the conversation was archived, False when cancelled.
+    """
+    conversation_id = str(row.get("id", ""))
+    print_info(
+        f"Remover do histórico: {row.get('code', '')} — "
+        f"{row.get('title', '')}"
+    )
+    confirmation = input(
+        'Digite "apagar" para remover esta conversa do histórico; Enter cancela: '
+    )
+    if confirmation != "apagar":
+        print_info("Remoção cancelada.")
+        return False
+
+    client.archive_conversation(conversation_id)
+    if client.conversation_id == conversation_id:
+        client.conversation_id = None
+        print_info(
+            "A conversa atual foi removida do histórico. "
+            "Crie uma nova conversa com /new ou selecione outra com /history."
+        )
+    print_info("Conversa removida do histórico.")
+    return True
+
+
 def handle_conversation_history(client: CLIClient) -> None:
     """Open the interactive conversation history selector.
 
@@ -730,13 +855,23 @@ def handle_conversation_history(client: CLIClient) -> None:
     client : CLIClient
         Authenticated CLI client used to list and open conversations.
     """
-    rows = build_conversation_history_rows(client, CONVERSATION_HISTORY_LIMIT)
-    selected_row = select_conversation_history_row(rows)
-    if selected_row is None:
+    while True:
+        rows = build_conversation_history_rows(client, CONVERSATION_HISTORY_LIMIT)
+        if not rows:
+            print_info("Nenhuma conversa encontrada.")
+            return
+
+        action = select_conversation_history_action(rows)
+        action_name = action.get("action")
+        selected_row = action.get("row")
+
+        if action_name == "open" and selected_row is not None:
+            open_conversation_history_row(client, selected_row)
+            return
+        if action_name == "remove" and selected_row is not None:
+            remove_conversation_history_row(client, selected_row)
+            continue
         return
-
-    open_conversation_history_row(client, selected_row)
-
 
 def validate_resume_last_args(args: argparse.Namespace) -> tuple[bool, str]:
     """
