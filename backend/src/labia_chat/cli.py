@@ -293,7 +293,15 @@ def print_assistant_response(response: dict) -> None:
 
 
 def chat_stream_enabled(args: argparse.Namespace) -> bool:
-    return getattr(args, "stream", True)
+    """Resolve whether interactive chat should stream responses."""
+    stream, _source = _resolve_streaming(getattr(args, "stream", None))
+    return stream
+
+
+def chat_show_last(args: argparse.Namespace) -> int:
+    """Resolve how many recent messages should be shown in chat history."""
+    show_last, _source = _resolve_show_last(getattr(args, "show_last", None))
+    return show_last
 
 
 def chat_title(args: argparse.Namespace) -> str:
@@ -923,6 +931,11 @@ def chat_command(args: argparse.Namespace) -> int:
         print(error_msg)
         return 1
 
+    show_last = chat_show_last(args)
+    if show_last < 0:
+        print("Erro: --show-last deve ser um número inteiro não negativo.")
+        return 2
+
     api_url = resolve_api_url(args.api_url)
     try:
         token = resolve_interactive_chat_token(args.token)
@@ -944,7 +957,6 @@ def chat_command(args: argparse.Namespace) -> int:
             return 1
 
         conversation_id = args.conversation_id
-        show_last = args.show_last
         resume_last = getattr(args, "last", False) or getattr(
             args, "resume_last", False
         )
@@ -1131,10 +1143,10 @@ def main() -> int:
     parser.add_argument(
         "--show-last",
         type=int,
-        default=10,
+        default=None,
         help=(
             "Número de mensagens a exibir no histórico "
-            "(padrão: 10, config ou --show-last-default)"
+            "(padrão: config ou 10)"
         ),
     )
     chat_stream_group = parser.add_mutually_exclusive_group()
@@ -1142,15 +1154,16 @@ def main() -> int:
         "--stream",
         action="store_true",
         dest="stream",
+        default=None,
         help=argparse.SUPPRESS,
     )
     chat_stream_group.add_argument(
         "--no-stream",
         action="store_false",
         dest="stream",
+        default=None,
         help="Usa o endpoint não-streaming legado",
     )
-    parser.set_defaults(stream=True)
 
     subparsers = parser.add_subparsers(dest="command", help="Comandos disponíveis")
 
@@ -1430,23 +1443,24 @@ def main() -> int:
     chat_parser.add_argument(
         "--show-last",
         type=int,
-        default=10,
-        help="Número de mensagens a exibir no histórico (padrão: 10)",
+        default=None,
+        help="Número de mensagens a exibir no histórico (padrão: config ou 10)",
     )
     chat_stream_group = chat_parser.add_mutually_exclusive_group()
     chat_stream_group.add_argument(
         "--stream",
         action="store_true",
         dest="stream",
+        default=None,
         help=argparse.SUPPRESS,
     )
     chat_stream_group.add_argument(
         "--no-stream",
         action="store_false",
         dest="stream",
+        default=None,
         help="Usa o endpoint não-streaming legado no chat interativo",
     )
-    chat_parser.set_defaults(stream=True)
 
     args = parser.parse_args()
 
@@ -1505,7 +1519,7 @@ def main() -> int:
             return chat_send_command(args)
         elif getattr(args, "chat_command", None) is None:
             # Chat interativo
-            if args.show_last < 0:
+            if args.show_last is not None and args.show_last < 0:
                 print("Erro: --show-last deve ser um número inteiro não negativo.")
                 return 2
             return chat_command(args)

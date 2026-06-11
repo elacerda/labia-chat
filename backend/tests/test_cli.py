@@ -11,6 +11,8 @@ from labia_chat.cli import (
     auth_me_command,
     chat_command,
     chat_send_command,
+    chat_show_last,
+    chat_stream_enabled,
     config_init_command,
     config_show_command,
     conversations_create_command,
@@ -254,6 +256,38 @@ class TestConfigShowCommand:
         assert "env-secret" not in output
         assert "Status do token: configurado" in output
         assert "Origem do token: env" in output
+
+
+class TestChatConfigDefaults:
+    """Testes de defaults do chat resolvidos via config local."""
+
+    def test_chat_stream_enabled_uses_config_when_arg_missing(self, tmp_path) -> None:
+        """Testa que streaming_default do config é usado sem flag explícita."""
+        with patch.dict("os.environ", {"XDG_CONFIG_HOME": str(tmp_path)}, clear=True):
+            save_config(streaming_default=False)
+
+            assert chat_stream_enabled(argparse.Namespace(stream=None)) is False
+
+    def test_chat_stream_enabled_arg_overrides_config(self, tmp_path) -> None:
+        """Testa que flag explícita de streaming prevalece sobre config."""
+        with patch.dict("os.environ", {"XDG_CONFIG_HOME": str(tmp_path)}, clear=True):
+            save_config(streaming_default=False)
+
+            assert chat_stream_enabled(argparse.Namespace(stream=True)) is True
+
+    def test_chat_show_last_uses_config_when_arg_missing(self, tmp_path) -> None:
+        """Testa que show_last_default do config é usado sem flag explícita."""
+        with patch.dict("os.environ", {"XDG_CONFIG_HOME": str(tmp_path)}, clear=True):
+            save_config(show_last_default=3)
+
+            assert chat_show_last(argparse.Namespace(show_last=None)) == 3
+
+    def test_chat_show_last_arg_overrides_config(self, tmp_path) -> None:
+        """Testa que --show-last explícito prevalece sobre config."""
+        with patch.dict("os.environ", {"XDG_CONFIG_HOME": str(tmp_path)}, clear=True):
+            save_config(show_last_default=3)
+
+            assert chat_show_last(argparse.Namespace(show_last=7)) == 7
 
 
 class TestDoctorCommand:
