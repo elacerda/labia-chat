@@ -9,16 +9,21 @@ import pytest
 from labia_chat import __version__, cli_ui
 from labia_chat.cli import (
     auth_me_command,
+    build_conversation_history_rows,
     chat_command,
     chat_send_command,
     chat_show_last,
     chat_stream_enabled,
     config_init_command,
     config_show_command,
+    conversation_display_title,
+    conversation_short_code,
     conversations_create_command,
     conversations_list_command,
     doctor_command,
     get_cli_version,
+    is_useful_conversation_title,
+    list_all_conversation_messages,
     main,
     messages_list_command,
     print_cli_error,
@@ -26,6 +31,7 @@ from labia_chat.cli import (
     resolve_interactive_chat_token,
     resolve_token,
     resolve_token_required,
+    truncate_conversation_title,
 )
 from labia_chat.cli_auth import LoginError, login_ai_scope, prompt_for_ai_scope_login
 from labia_chat.cli_client import (
@@ -84,6 +90,147 @@ class TestCliUiMarkdownPanels:
         assert final_panel.padding == (0, 2)
         assert final_panel.safe_box is True
         assert print_mock.call_args_list[1].args == ()
+
+
+class TestConversationHistoryHelpers:
+    """Testes dos helpers de preparação do histórico de conversas."""
+
+    def test_conversation_short_code_uses_first_eight_characters(self) -> None:
+        """Testa código curto determinístico da conversa."""
+        assert conversation_short_code("123456789abcdef") == "12345678"
+        assert conversation_short_code("abc") == "abc"
+        assert conversation_short_code("") == ""
+
+    def test_is_useful_conversation_title_rejects_empty_and_generic(
+        self,
+    ) -> None:
+        """Testa detecção de títulos genéricos ou vazios."""
+        assert is_useful_conversation_title("Projeto LABIA") is True
+        assert is_useful_conversation_title(None) is False
+        assert is_useful_conversation_title("") is False
+        assert is_useful_conversation_title("   ") is False
+        assert is_useful_conversation_title("CLI chat") is False
+        assert is_useful_conversation_title("  CLI chat  ") is False
+
+    def test_truncate_conversation_title_normalizes_whitespace(self) -> None:
+        """Testa normalização de espaço e truncamento com reticências."""
+        assert (
+            truncate_conversation_title("  pergunta\ncom    muitos\tespaços  ")
+            == "pergunta com muitos espaços"
+        )
+        assert truncate_conversation_title("abcdefghij", max_length=8) == "abcde..."
+        assert truncate_conversation_title("abcdefgh", max_length=8) == "abcdefgh"
+
+    def test_conversation_display_title_uses_explicit_title(self) -> None:
+        """Testa uso de título explícito não genérico."""
+        client = MagicMock()
+
+        title = conversation_display_title(
+            client,
+            {"id": "conv-1", "title": "  Título útil  "},
+        )
+
+        assert title == "Título útil"
+        client.list_messages.assert_not_called()
+
+    def test_conversation_display_title_uses_first_user_message_for_generic_title(
+        self,
+    ) -> None:
+        """Testa fallback para primeira mensagem de usuário."""
+        client = MagicMock()
+        client.list_messages.return_value = [
+            {"role": "assistant", "content": "Resposta inicial"},
+            {"role": "user", "content": "  Quero analisar espectros   FITS  "},
+            {"role": "user", "content": "Outra pergunta"},
+        ]
+
+        title = conversation_display_title(
+            client,
+            {"id": "conv-1", "title": "CLI chat"},
+        )
+
+        assert title == "Quero analisar espectros FITS"
+        client.list_messages.assert_called_once_with("conv-1", limit=10, offset=0)
+
+    def test_conversation_display_title_falls_back_without_messages(self) -> None:
+        """Testa fallback quando não há título útil nem mensagem de usuário."""
+        client = MagicMock()
+        client.list_messages.return_value = [
+            {"role": "assistant", "content": "Olá"},
+            {"role": "user", "content": "   "},
+        ]
+
+        title = conversation_display_title(client, {"id": "conv-1", "title": None})
+
+        assert title == "Conversa sem mensagens"
+
+    def test_list_all_conversation_messages_uses_increasing_offsets(self) -> None:
+        """Testa paginação completa de mensagens da conversa explícita."""
+        client = MagicMock()
+        client.list_messages.side_effect = [
+            [{"id": "m1"}, {"id": "m2"}],
+            [{"id": "m3"}, {"id": "m4"}],
+            [{"id": "m5"}],
+        ]
+
+        messages = list_all_conversation_messages(
+            client,
+            "conv-1",
+            page_size=2,
+        )
+
+        assert messages == [
+            {"id": "m1"},
+            {"id": "m2"},
+            {"id": "m3"},
+            {"id": "m4"},
+            {"id": "m5"},
+        ]
+        assert client.list_messages.call_args_list == [
+            (("conv-1",), {"limit": 2, "offset": 0}),
+            (("conv-1",), {"limit": 2, "offset": 2}),
+            (("conv-1",), {"limit": 2, "offset": 4}),
+        ]
+
+    def test_build_conversation_history_rows_returns_selector_data(self) -> None:
+        """Testa montagem de linhas para futuro seletor de histórico."""
+        client = MagicMock()
+        client.list_conversations.return_value = [
+            {
+                "id": "123456789abcdef",
+                "title": "Título explícito",
+                "updated_at": "2026-06-11T12:00:00Z",
+                "created_at": "2026-06-10T12:00:00Z",
+            },
+            {
+                "id": "abcdef",
+                "title": "CLI chat",
+                "created_at": "2026-06-09T12:00:00Z",
+            },
+        ]
+        client.list_messages.return_value = [
+            {"role": "user", "content": "Pergunta inicial"},
+        ]
+
+        rows = build_conversation_history_rows(client, limit=2)
+
+        assert rows == [
+            {
+                "index": 1,
+                "id": "123456789abcdef",
+                "code": "12345678",
+                "title": "Título explícito",
+                "updated_at": "2026-06-11T12:00:00Z",
+            },
+            {
+                "index": 2,
+                "id": "abcdef",
+                "code": "abcdef",
+                "title": "Pergunta inicial",
+                "updated_at": "2026-06-09T12:00:00Z",
+            },
+        ]
+        client.list_conversations.assert_called_once_with(limit=2, offset=0)
 
 
 class TestResolveApiUrl:

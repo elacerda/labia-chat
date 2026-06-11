@@ -55,6 +55,9 @@ from labia_chat.cli_ui import (
 )
 
 DEFAULT_CHAT_TITLE = "CLI chat"
+MESSAGE_PAGE_SIZE = 200
+CONVERSATION_HISTORY_LIMIT = 20
+CONVERSATION_TITLE_MAX_LENGTH = 60
 DOCTOR_HINT = "Sugestão: execute `labia-chat doctor` para diagnosticar o ambiente."
 CLI_HANDLED_ERRORS = (
     AuthError,
@@ -330,6 +333,189 @@ def get_most_recent_conversation(client: CLIClient) -> str | None:
         return None
 
     return conversation_id
+
+
+def conversation_short_code(conversation_id: str) -> str:
+    """Return a compact deterministic conversation code.
+
+    Parameters
+    ----------
+    conversation_id : str
+        Full conversation identifier returned by the backend.
+
+    Returns
+    -------
+    str
+        First eight characters when present, otherwise the original value.
+    """
+    return conversation_id[:8]
+
+
+def is_useful_conversation_title(title: str | None) -> bool:
+    """Return whether a conversation title is useful for display.
+
+    Parameters
+    ----------
+    title : str | None
+        Conversation title returned by the backend.
+
+    Returns
+    -------
+    bool
+        True when the title has non-generic visible text.
+    """
+    if title is None:
+        return False
+
+    normalized_title = " ".join(title.split())
+    return bool(normalized_title) and normalized_title != DEFAULT_CHAT_TITLE
+
+
+def truncate_conversation_title(
+    text: str,
+    max_length: int = CONVERSATION_TITLE_MAX_LENGTH,
+) -> str:
+    """Normalize and truncate text for conversation title display.
+
+    Parameters
+    ----------
+    text : str
+        Source text used as a display title.
+    max_length : int, optional
+        Maximum number of characters in the returned title.
+
+    Returns
+    -------
+    str
+        Whitespace-normalized title, with ellipsis when truncated.
+    """
+    normalized_text = " ".join(text.split())
+    if len(normalized_text) <= max_length:
+        return normalized_text
+    if max_length <= 3:
+        return "." * max_length
+    return f"{normalized_text[: max_length - 3]}..."
+
+
+def list_all_conversation_messages(
+    client: CLIClient,
+    conversation_id: str,
+    page_size: int = MESSAGE_PAGE_SIZE,
+) -> list[dict]:
+    """Fetch all messages for a conversation using backend pagination.
+
+    Parameters
+    ----------
+    client : CLIClient
+        Authenticated CLI client used to call the backend.
+    conversation_id : str
+        Explicit conversation identifier to load.
+    page_size : int, optional
+        Number of messages requested per backend page.
+
+    Returns
+    -------
+    list[dict]
+        Combined message dictionaries in backend order.
+
+    Raises
+    ------
+    ValueError
+        If ``page_size`` is not positive.
+    """
+    if page_size <= 0:
+        raise ValueError("page_size must be positive")
+
+    messages: list[dict] = []
+    offset = 0
+
+    while True:
+        page = client.list_messages(
+            conversation_id,
+            limit=page_size,
+            offset=offset,
+        )
+        if not page:
+            break
+
+        messages.extend(page)
+        if len(page) < page_size:
+            break
+
+        offset += page_size
+
+    return messages
+
+
+def conversation_display_title(client: CLIClient, conversation: dict) -> str:
+    """Derive the display title for a conversation row.
+
+    Parameters
+    ----------
+    client : CLIClient
+        Authenticated CLI client used to fetch messages when needed.
+    conversation : dict
+        Conversation dictionary returned by the backend.
+
+    Returns
+    -------
+    str
+        Truncated title suitable for a future history selector row.
+    """
+    title = conversation.get("title")
+    if is_useful_conversation_title(title):
+        return truncate_conversation_title(str(title))
+
+    conversation_id = conversation.get("id", "")
+    messages = client.list_messages(str(conversation_id), limit=10, offset=0)
+    for message in messages:
+        if message.get("role") != "user":
+            continue
+
+        content = message.get("content")
+        if not isinstance(content, str) or not " ".join(content.split()):
+            continue
+
+        return truncate_conversation_title(content)
+
+    return truncate_conversation_title("Conversa sem mensagens")
+
+
+def build_conversation_history_rows(
+    client: CLIClient,
+    limit: int = CONVERSATION_HISTORY_LIMIT,
+) -> list[dict]:
+    """Build data rows for the future conversation history selector.
+
+    Parameters
+    ----------
+    client : CLIClient
+        Authenticated CLI client used to list conversations.
+    limit : int, optional
+        Maximum number of recent conversations to include.
+
+    Returns
+    -------
+    list[dict]
+        Row dictionaries with index, id, short code, display title, and date.
+    """
+    conversations = client.list_conversations(limit=limit, offset=0)
+    rows: list[dict] = []
+
+    for index, conversation in enumerate(conversations, start=1):
+        conversation_id = str(conversation.get("id", ""))
+        rows.append(
+            {
+                "index": index,
+                "id": conversation_id,
+                "code": conversation_short_code(conversation_id),
+                "title": conversation_display_title(client, conversation),
+                "updated_at": conversation.get("updated_at")
+                or conversation.get("created_at"),
+            }
+        )
+
+    return rows
 
 
 def validate_resume_last_args(args: argparse.Namespace) -> tuple[bool, str]:
