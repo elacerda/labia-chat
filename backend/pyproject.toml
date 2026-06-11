@@ -17,6 +17,7 @@ dependencies = [
     "asyncpg>=0.29.0",
     "alembic>=1.13.0",
     "rich>=13.0.0",
+    "prompt_toolkit>=3.0.0",
 ]
 
 [project.scripts]
