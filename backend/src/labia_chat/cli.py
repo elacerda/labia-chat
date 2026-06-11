@@ -43,6 +43,7 @@ from labia_chat.cli_config import (
 from labia_chat.cli_ui import (
     print_assistant_message,
     print_banner,
+    print_conversation_history_table,
     print_error,
     print_history_header,
     print_info,
@@ -516,6 +517,225 @@ def build_conversation_history_rows(
         )
 
     return rows
+
+
+def resolve_conversation_history_selection(
+    selection: str,
+    rows: list[dict],
+) -> dict | None:
+    """Resolve a history selector entry by number or short code.
+
+    Parameters
+    ----------
+    selection : str
+        Raw user selection from the fallback prompt.
+    rows : list[dict]
+        Prepared conversation rows.
+
+    Returns
+    -------
+    dict | None
+        Matching row, or None when selection is empty or invalid.
+    """
+    normalized_selection = selection.strip()
+    if not normalized_selection:
+        return None
+
+    if normalized_selection.isdigit():
+        selected_index = int(normalized_selection)
+        for row in rows:
+            if row.get("index") == selected_index:
+                return row
+        return None
+
+    for row in rows:
+        if normalized_selection == row.get("code"):
+            return row
+
+    return None
+
+
+def format_conversation_history_prompt_rows(
+    rows: list[dict],
+    selected_index: int,
+) -> list[tuple[str, str]]:
+    """Build prompt-toolkit fragments for conversation history rows.
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Prepared conversation rows.
+    selected_index : int
+        Zero-based row selected in the prompt-toolkit UI.
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        Formatted text fragments for prompt-toolkit.
+    """
+    fragments = [
+        ("class:title", "Histórico de conversas\n"),
+        ("", "Use ↑/↓ e Enter para abrir, q/Esc para sair.\n\n"),
+    ]
+
+    for index, row in enumerate(rows):
+        style = "reverse" if index == selected_index else ""
+        pointer = ">" if index == selected_index else " "
+        timestamp = row.get("updated_at") or ""
+        fragments.append(
+            (
+                style,
+                f"{pointer} {row.get('index', ''):>2} "
+                f"{row.get('code', ''):<8} "
+                f"{row.get('title', '')} "
+                f"{timestamp}\n",
+            )
+        )
+
+    return fragments
+
+
+def prompt_conversation_history_row(rows: list[dict]) -> dict | None:
+    """Select a conversation row using prompt-toolkit key bindings.
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Prepared conversation rows.
+
+    Returns
+    -------
+    dict | None
+        Selected row, or None when the user cancels.
+    """
+    from prompt_toolkit.application import Application
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.layout import Layout
+    from prompt_toolkit.layout.containers import Window
+    from prompt_toolkit.layout.controls import FormattedTextControl
+
+    selected_index = 0
+    key_bindings = KeyBindings()
+
+    def get_text_fragments() -> list[tuple[str, str]]:
+        return format_conversation_history_prompt_rows(rows, selected_index)
+
+    control = FormattedTextControl(get_text_fragments)
+
+    @key_bindings.add("up")
+    def _(event) -> None:
+        nonlocal selected_index
+        selected_index = max(0, selected_index - 1)
+        event.app.invalidate()
+
+    @key_bindings.add("down")
+    def _(event) -> None:
+        nonlocal selected_index
+        selected_index = min(len(rows) - 1, selected_index + 1)
+        event.app.invalidate()
+
+    @key_bindings.add("enter")
+    def _(event) -> None:
+        event.app.exit(result=rows[selected_index])
+
+    @key_bindings.add("q")
+    @key_bindings.add("escape")
+    def _(event) -> None:
+        event.app.exit(result=None)
+
+    application = Application(
+        layout=Layout(Window(content=control)),
+        key_bindings=key_bindings,
+        full_screen=False,
+    )
+    return application.run()
+
+
+def prompt_conversation_history_row_fallback(rows: list[dict]) -> dict | None:
+    """Select a conversation row using plain input().
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Prepared conversation rows.
+
+    Returns
+    -------
+    dict | None
+        Selected row, or None when cancelled or invalid.
+    """
+    print_conversation_history_table(rows)
+    selection = input(
+        "Escolha uma conversa pelo número ou código; Enter cancela: "
+    )
+    return resolve_conversation_history_selection(selection, rows)
+
+
+def select_conversation_history_row(rows: list[dict]) -> dict | None:
+    """Select one row from prepared conversation history data.
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Prepared conversation rows.
+
+    Returns
+    -------
+    dict | None
+        Selected row, or None when the selector is cancelled.
+    """
+    if not rows:
+        print_info("Nenhuma conversa encontrada.")
+        return None
+
+    if sys.stdin.isatty():
+        try:
+            return prompt_conversation_history_row(rows)
+        except ImportError:
+            pass
+
+    return prompt_conversation_history_row_fallback(rows)
+
+
+def open_conversation_history_row(client: CLIClient, row: dict) -> None:
+    """Open a selected conversation and print its full messages.
+
+    Parameters
+    ----------
+    client : CLIClient
+        Authenticated CLI client.
+    row : dict
+        Selected conversation history row.
+    """
+    conversation_id = str(row.get("id", ""))
+    client.conversation_id = conversation_id
+    print_info(
+        f"Conversa selecionada: {row.get('code', '')} — "
+        f"{row.get('title', '')}"
+    )
+
+    messages = list_all_conversation_messages(client, conversation_id)
+    if not messages:
+        print_info("Nenhuma mensagem ainda.")
+        return
+
+    print_messages(messages, len(messages))
+
+
+def handle_conversation_history(client: CLIClient) -> None:
+    """Open the interactive conversation history selector.
+
+    Parameters
+    ----------
+    client : CLIClient
+        Authenticated CLI client used to list and open conversations.
+    """
+    rows = build_conversation_history_rows(client, CONVERSATION_HISTORY_LIMIT)
+    selected_row = select_conversation_history_row(rows)
+    if selected_row is None:
+        return
+
+    open_conversation_history_row(client, selected_row)
 
 
 def validate_resume_last_args(args: argparse.Namespace) -> tuple[bool, str]:
@@ -1225,7 +1445,7 @@ def chat_command(args: argparse.Namespace) -> int:
 
             if normalized_input == "/history":
                 try:
-                    print_chat_history(client, show_last)
+                    handle_conversation_history(client)
                 except CLI_HANDLED_ERRORS as e:
                     print_cli_error(e, "ao carregar histórico")
                     print()

@@ -122,7 +122,7 @@ def print_help() -> None:
     table.add_column()
 
     table.add_row("/help", "Mostra esta ajuda")
-    table.add_row("/history", "Mostra mensagens recentes da conversa atual")
+    table.add_row("/history", "Mostra o histórico de conversas")
     table.add_row("/new", "Cria uma nova conversa e muda para ela")
     table.add_row("/exit", "Sai do chat")
     table.add_row("/quit", "Sai do chat")
@@ -150,6 +150,36 @@ def print_history_header(count: int) -> None:
             padding=(0, 2),
         )
     )
+    console.print()
+
+
+def print_conversation_history_table(rows: list[dict]) -> None:
+    """Print conversation-history rows for selection.
+
+    Parameters
+    ----------
+    rows : list[dict]
+        Prepared conversation rows with index, code, title, and timestamp.
+    """
+    console.print()
+    console.print(Text("Histórico de conversas", style="info"))
+    console.print("Use ↑/↓ e Enter para abrir, q/Esc para sair.")
+
+    table = Table(show_header=True, header_style="bold blue")
+    table.add_column("#", justify="right", no_wrap=True)
+    table.add_column("Código", no_wrap=True)
+    table.add_column("Título")
+    table.add_column("Atualizada", no_wrap=True)
+
+    for row in rows:
+        table.add_row(
+            str(row.get("index", "")),
+            str(row.get("code", "")),
+            str(row.get("title", "")),
+            str(row.get("updated_at") or ""),
+        )
+
+    console.print(table)
     console.print()
 
 

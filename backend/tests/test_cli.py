@@ -26,8 +26,10 @@ from labia_chat.cli import (
     list_all_conversation_messages,
     main,
     messages_list_command,
+    open_conversation_history_row,
     print_cli_error,
     resolve_api_url,
+    resolve_conversation_history_selection,
     resolve_interactive_chat_token,
     resolve_token,
     resolve_token_required,
@@ -191,6 +193,69 @@ class TestConversationHistoryHelpers:
             (("conv-1",), {"limit": 2, "offset": 2}),
             (("conv-1",), {"limit": 2, "offset": 4}),
         ]
+
+
+    def test_resolve_conversation_history_selection_by_index(self) -> None:
+        """Testa seleção de conversa por índice numérico."""
+        rows = [
+            {"index": 1, "id": "conv-1", "code": "conv-1", "title": "Uma"},
+            {"index": 2, "id": "conv-2", "code": "conv-2", "title": "Duas"},
+        ]
+
+        assert resolve_conversation_history_selection("2", rows) == rows[1]
+
+    def test_resolve_conversation_history_selection_by_code(self) -> None:
+        """Testa seleção de conversa por código curto."""
+        rows = [
+            {"index": 1, "id": "123456789", "code": "12345678"},
+            {"index": 2, "id": "abcdef", "code": "abcdef"},
+        ]
+
+        assert resolve_conversation_history_selection("abcdef", rows) == rows[1]
+
+    def test_resolve_conversation_history_selection_empty_cancels(self) -> None:
+        """Testa cancelamento com entrada vazia."""
+        rows = [{"index": 1, "id": "conv-1", "code": "conv-1"}]
+
+        assert resolve_conversation_history_selection("   ", rows) is None
+
+    def test_resolve_conversation_history_selection_invalid_cancels(self) -> None:
+        """Testa cancelamento para seleção inválida."""
+        rows = [{"index": 1, "id": "conv-1", "code": "conv-1"}]
+
+        assert resolve_conversation_history_selection("9", rows) is None
+        assert resolve_conversation_history_selection("missing", rows) is None
+
+    def test_open_conversation_history_row_updates_active_conversation(self) -> None:
+        """Testa que abrir conversa selecionada atualiza conversation_id."""
+        client = MagicMock()
+        row = {"id": "conv-2", "code": "conv-2", "title": "Conversa"}
+
+        with patch("labia_chat.cli.list_all_conversation_messages", return_value=[]):
+            with patch("labia_chat.cli.print_info"):
+                open_conversation_history_row(client, row)
+
+        assert client.conversation_id == "conv-2"
+
+    def test_open_conversation_history_row_prints_all_paginated_messages(self) -> None:
+        """Testa que abrir conversa usa todas as mensagens paginadas."""
+        client = MagicMock()
+        row = {"id": "conv-2", "code": "conv-2", "title": "Conversa"}
+        messages = [
+            {"role": "user", "content": "Olá"},
+            {"role": "assistant", "content": "Oi"},
+        ]
+
+        with patch(
+            "labia_chat.cli.list_all_conversation_messages",
+            return_value=messages,
+        ) as list_all:
+            with patch("labia_chat.cli.print_messages") as print_messages_mock:
+                with patch("labia_chat.cli.print_info"):
+                    open_conversation_history_row(client, row)
+
+        list_all.assert_called_once_with(client, "conv-2")
+        print_messages_mock.assert_called_once_with(messages, len(messages))
 
     def test_build_conversation_history_rows_returns_selector_data(self) -> None:
         """Testa montagem de linhas para futuro seletor de histórico."""
@@ -1261,15 +1326,17 @@ class TestHistoryCommand:
                         "content": "Resposta",
                     }
 
-                    with patch("labia_chat.cli.input") as mock_input:
-                        mock_input.side_effect = ["/history", "/exit"]
+                    with patch("labia_chat.cli.handle_conversation_history") as history:
+                        with patch("labia_chat.cli.input") as mock_input:
+                            mock_input.side_effect = ["/history", "/exit"]
 
-                        result = chat_command(args)
+                            result = chat_command(args)
 
                     assert result == 0
-                    # list_messages deve ser chamado duas vezes:
-                    # uma vez no início e outra vez no /history
-                    assert mock_client.list_messages.call_count == 2
+                    history.assert_called_once_with(mock_client)
+                    mock_client.list_messages.assert_called_once_with(
+                        "123e4567-e89b-12d3-a456-426614174000", limit=10
+                    )
 
     def test_history_command_error(self) -> None:
         """Testa comando /history com erro no backend."""
@@ -1306,23 +1373,22 @@ class TestHistoryCommand:
                         "archived_at": None,
                     }
 
-                    # Erro no /history
-                    mock_client.list_messages.side_effect = BackendError(
-                        "Erro no backend"
-                    )
-
+                    mock_client.list_messages.return_value = []
                     mock_client.generate_message.return_value = {
                         "content": "Resposta",
                     }
 
-                    with patch("labia_chat.cli.input") as mock_input:
-                        mock_input.side_effect = ["/history", "/exit"]
+                    with patch(
+                        "labia_chat.cli.handle_conversation_history",
+                        side_effect=BackendError("Erro no backend"),
+                    ) as history:
+                        with patch("labia_chat.cli.input") as mock_input:
+                            mock_input.side_effect = ["/history", "/exit"]
 
-                        result = chat_command(args)
+                            result = chat_command(args)
 
                     assert result == 0
-                    # O erro é tratado e o loop continua
-                    assert mock_client.list_messages.call_count == 2
+                    history.assert_called_once_with(mock_client)
 
     def test_preserve_new_conversation_flow(self) -> None:
         """Testa que nova conversa é criada quando não há --conversation-id."""
