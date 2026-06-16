@@ -7,7 +7,7 @@ O projeto usará PostgreSQL.
 Configuração via `.env`:
 
 ```env
-DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/labia_chat
+DATABASE_URL=postgresql+asyncpg://cbpfuser:SENHA_URL_ENCODED@127.0.0.1:4320/labia_chat
 ```
 
 ## ORM escolhido

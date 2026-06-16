@@ -220,7 +220,7 @@ res = requests.post(
     "https://ai-scope.cbpf.br/adss/v1/auth/login",
     data={
         "username": "teste",
-        "password": "asdflkjh",
+        "password": "<redacted>",
     },
 )
 

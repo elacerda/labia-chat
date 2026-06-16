@@ -13,7 +13,7 @@
 Exemplo de desenvolvimento:
 
 ```env
-DATABASE_URL=postgresql+asyncpg://labia_chat:labia_chat@localhost:5432/labia_chat
+DATABASE_URL=postgresql+asyncpg://cbpfuser:SENHA_URL_ENCODED@127.0.0.1:4320/labia_chat
 
 ADSS_BASE_URL=https://ai-scope.cbpf.br/adss/v1
 ADSS_REQUIRED_ROLE=chat_vllm

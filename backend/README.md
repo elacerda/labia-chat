@@ -92,7 +92,7 @@ cp .env.example .env
 #### Configurações futuras (MVP 2+)
 
 - `DATABASE_URL` - URL de conexão com banco de dados (MVP 2)
-  - Exemplo: `DATABASE_URL=postgresql+asyncpg://labia_chat:labia_chat@localhost:5432/labia_chat`
+  - Exemplo: `DATABASE_URL=postgresql+asyncpg://cbpfuser:SENHA_URL_ENCODED@127.0.0.1:4320/labia_chat`
 - `VLLM_BASE_URL` - URL base do vLLM (MVP 4)
 - `VLLM_DEFAULT_MODEL` - Modelo padrão do vLLM (MVP 4)
 

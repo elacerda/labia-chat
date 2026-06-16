@@ -74,7 +74,7 @@ O endpoint `/generate` permanece disponível e retorna a mensagem completa em JS
 
 | Variável | Exemplo | Descrição |
 |----------|---------|-----------|
-| `DATABASE_URL` | `postgresql+asyncpg://labia_chat:labia_chat@localhost:5432/labia_chat` | URL de conexão com PostgreSQL |
+| `DATABASE_URL` | `postgresql+asyncpg://cbpfuser:SENHA_URL_ENCODED@127.0.0.1:4320/labia_chat` | URL de conexão com PostgreSQL |
 
 ### Configurações do vLLM (MVP 4+)
 
