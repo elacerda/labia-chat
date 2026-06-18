@@ -40,6 +40,7 @@ from labia_chat.cli_config import (
 from labia_chat.cli_config import (
     resolve_token_optional_with_source as resolve_token_optional_with_source_config,
 )
+from labia_chat.cli_session import get_cached_session
 from labia_chat.cli_ui import (
     print_assistant_message,
     print_banner,
@@ -116,22 +117,40 @@ def resolve_api_url_with_source(args_api_url: str | None) -> tuple[str, str]:
     return resolve_api_url_with_source_config(args_api_url)
 
 
-def resolve_token(args_token: str | None) -> str:
+def resolve_token(
+    args_token: str | None,
+    allow_interactive_login: bool = False,
+) -> str:
     """
-    Resolve o token na ordem: flag > env > prompt.
+    Resolve o token na ordem: flag > env > saved session > prompt.
 
     Args:
         args_token: Valor passado via --token.
+        allow_interactive_login: Se True, permite login interativo AI-Scope
+            se nenhum token for encontrado nos estágios anteriores.
 
     Returns:
         O token resolvido.
+
+    Raises:
+        LoginError: Se allow_interactive_login=True e o login for cancelado.
     """
     if args_token:
         return args_token
     env_token = os.environ.get("LABIA_CHAT_TOKEN")
     if env_token:
         return env_token
-    return getpass.getpass("AI-Scope token: ")
+    # Try saved session
+    session_token = get_cached_session()
+    if session_token:
+        return session_token
+    # Only prompt if allow_interactive_login is True
+    if allow_interactive_login:
+        return prompt_for_ai_scope_login()
+    raise LoginError(
+        "Token AI-Scope ausente. Informe --token ou LABIA_CHAT_TOKEN. "
+        "Login automático só é usado no chat interativo."
+    )
 
 
 def resolve_token_optional_with_source(
@@ -170,11 +189,17 @@ def resolve_interactive_chat_token(args_token: str | None) -> str:
     Resolve token para chat interativo, fazendo login AI-Scope se necessário.
 
     O token obtido por login permanece apenas em memória no processo atual.
+
+    Args:
+        args_token: Valor passado via --token.
+
+    Returns:
+        O token resolvido (via flag, env, session, ou login interativo).
     """
-    token, _source = resolve_token_optional_with_source_config(args_token)
-    if token:
-        return token
-    return prompt_for_ai_scope_login()
+    token = resolve_token(args_token, allow_interactive_login=True)
+    # Session tokens from save_session are kept in memory
+    # The prompt_for_ai_scope_login returns an in-memory token
+    return token
 
 
 def print_missing_token_error() -> None:
@@ -1429,10 +1454,13 @@ def auth_me_command(args: argparse.Namespace) -> int:
     Returns:
         Código de saída (0 para sucesso, 1 para erro).
     """
+    from labia_chat.cli_auth import LoginError
+
     api_url = resolve_api_url(args.api_url)
-    token = resolve_token_required(args.token)
-    if not token:
-        print_missing_token_error()
+    try:
+        token = resolve_token(args.token, allow_interactive_login=True)
+    except LoginError as e:
+        print_cli_error(e)
         return 1
 
     client = CLIClient(api_url)
@@ -1459,6 +1487,122 @@ def auth_me_command(args: argparse.Namespace) -> int:
         return 1
     finally:
         client.close()
+
+
+def auth_login_command(args: argparse.Namespace) -> int:
+    """
+    Executa o comando 'auth login' para autenticar e salvar sessão.
+
+    Args:
+        args: Argumentos da linha de comando.
+
+    Returns:
+        Código de saída (0 para sucesso, 1 para erro).
+    """
+    from labia_chat.cli_auth import (
+        LoginError,
+        store_session_after_login,
+    )
+    from labia_chat.cli_client import CLIClient
+
+    api_url = resolve_api_url(args.api_url)
+
+    try:
+        username, password = _prompt_for_credentials()
+        token = login_ai_scope_with_api_url(username, password, api_url)
+    except LoginError as e:
+        print_cli_error(e)
+        return 1
+
+    # Store the session
+    store_session_after_login(token, username, api_url)
+
+    # Validate and print user summary
+    client = CLIClient(api_url)
+    try:
+        client.set_token(token)
+        user_data = client.validate_token()
+        print_user_summary(user_data)
+        return 0
+    except AuthError as e:
+        print_cli_error(e)
+        return 1
+    except CLIPermissionError as e:
+        print_cli_error(e)
+        return 1
+    except ValidationError as e:
+        print_cli_error(e)
+        return 1
+    except BackendError as e:
+        print_cli_error(e)
+        return 1
+    except ConnectionError as e:
+        print_cli_error(e)
+        return 1
+    finally:
+        client.close()
+
+
+def _prompt_for_credentials() -> tuple[str, str]:
+    """
+    Solicita credenciais AI-Scope.
+
+    Returns:
+        Tupla (username, password).
+    """
+    username = input("AI-Scope username: ").strip()
+    if not username:
+        raise LoginError("Usuário AI-Scope não informado.")
+    password = getpass.getpass("AI-Scope password: ")
+    if not password:
+        raise LoginError("Senha AI-Scope não informada.")
+    return username, password
+
+
+def login_ai_scope_with_api_url(
+    username: str,
+    password: str,
+    api_url: str,
+) -> str:
+    """
+    Realiza login AI-Scope e retorna o access_token.
+
+    Args:
+        username: Nome de usuário AI-Scope.
+        password: Senha AI-Scope.
+        api_url: URL da API (usada para diagnose em erros).
+
+    Returns:
+        Access token retornado pelo AI-Scope.
+
+    Raises:
+        LoginError: Se o login falhar.
+    """
+    from labia_chat.cli_auth import AI_SCOPE_LOGIN_URL, login_ai_scope
+
+    # Use the fixed AI-Scope login URL (not the api_url)
+    return login_ai_scope(
+        username,
+        password,
+        login_url=AI_SCOPE_LOGIN_URL,
+    )
+
+
+def auth_logout_command(args: argparse.Namespace) -> int:
+    """
+    Executa o comando 'auth logout' para limpar sessão salva.
+
+    Args:
+        args: Argumentos da linha de comando (ignorados).
+
+    Returns:
+        Código de saída (0 para sucesso, 1 para erro).
+    """
+    from labia_chat.cli_session import clear_session
+
+    clear_session()
+    print_info("Sessão limpa. Você precisará fazer login novamente.")
+    return 0
 
 
 def conversations_create_command(args: argparse.Namespace) -> int:
@@ -2011,6 +2155,23 @@ def main() -> int:
         help="Token AI-Scope (padrão: LABIA_CHAT_TOKEN)",
     )
 
+    # auth login
+    auth_login_parser = auth_subparsers.add_parser(
+        "login",
+        help="Faz login AI-Scope e salva sessão localmente",
+    )
+    auth_login_parser.add_argument(
+        "--api-url",
+        type=str,
+        help=api_url_help,
+    )
+
+    # auth logout
+    auth_subparsers.add_parser(
+        "logout",
+        help="Limpa sessão local salva",
+    )
+
     # Comando conversations
     conversations_parser = subparsers.add_parser(
         "conversations",
@@ -2234,6 +2395,10 @@ def main() -> int:
     if args.command == "auth":
         if args.auth_command == "me":
             return auth_me_command(args)
+        elif args.auth_command == "login":
+            return auth_login_command(args)
+        elif args.auth_command == "logout":
+            return auth_logout_command(args)
         else:
             auth_parser.print_help()
             return 0
