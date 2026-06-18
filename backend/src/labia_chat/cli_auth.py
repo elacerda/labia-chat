@@ -71,3 +71,27 @@ def prompt_for_ai_scope_login(
         raise LoginError("Senha AI-Scope não informada.")
 
     return login_func(username, password)
+
+
+def store_session_after_login(
+    access_token: str,
+    username: str,
+    api_url: str,
+) -> None:
+    """
+    Saves the session after successful login.
+
+    Args:
+        access_token: The AI-Scope access token.
+        username: The authenticated username.
+        api_url: The API URL used for authentication.
+    """
+    from labia_chat.cli_session import save_session
+
+    save_session(
+        access_token,
+        {
+            "username": username,
+            "api_url": api_url,
+        },
+    )

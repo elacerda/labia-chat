@@ -8,6 +8,8 @@ import pytest
 
 from labia_chat import __version__, cli_ui
 from labia_chat.cli import (
+    auth_login_command,
+    auth_logout_command,
     auth_me_command,
     build_conversation_history_rows,
     chat_command,
@@ -198,7 +200,6 @@ class TestConversationHistoryHelpers:
             (("conv-1",), {"limit": 2, "offset": 4}),
         ]
 
-
     def test_resolve_conversation_history_selection_by_index(self) -> None:
         """Testa seleção de conversa por índice numérico."""
         rows = [
@@ -278,8 +279,7 @@ class TestConversationHistoryHelpers:
         ]
 
         assert (
-            resolve_conversation_history_delete_selection("d abcdef", rows)
-            == rows[1]
+            resolve_conversation_history_delete_selection("d abcdef", rows) == rows[1]
         )
 
     def test_remove_conversation_history_row_requires_exact_confirmation(
@@ -335,6 +335,7 @@ class TestConversationHistoryHelpers:
                 remove_conversation_history_row(client, row)
 
         assert client.conversation_id is None
+
     def test_handle_conversation_history_cancelled_removal_does_not_archive(
         self,
     ) -> None:
@@ -367,7 +368,6 @@ class TestConversationHistoryHelpers:
 
         confirm_removal.assert_called_once_with([rows[0]])
         remove_rows.assert_not_called()
-
 
     def test_handle_conversation_history_removes_row_locally_after_removal(
         self,
@@ -524,9 +524,7 @@ class TestConversationHistoryHelpers:
             cli_ui.print_conversation_history_table(rows)
 
         printed = "\n".join(
-            str(call.args[0])
-            for call in console_print.call_args_list
-            if call.args
+            str(call.args[0]) for call in console_print.call_args_list if call.args
         )
         assert "↑/↓" not in printed
         assert "Escolha pelo número/código" in printed
@@ -635,11 +633,14 @@ class TestResolveToken:
     def test_prompt_used_when_no_flag_no_env(self) -> None:
         """Testa que prompt é usado quando não há flag nem env."""
         with patch.dict("os.environ", {"LABIA_CHAT_TOKEN": ""}, clear=True):
-            with patch("labia_chat.cli.getpass.getpass") as mock_getpass:
-                mock_getpass.return_value = "prompt-token"
-                result = resolve_token(None)
-                assert result == "prompt-token"
-                mock_getpass.assert_called_once_with("AI-Scope token: ")
+            with patch("labia_chat.cli.get_cached_session", return_value=None):
+                with patch(
+                    "labia_chat.cli.prompt_for_ai_scope_login",
+                    return_value="prompt-token",
+                ) as mock_prompt:
+                    result = resolve_token(None, allow_interactive_login=True)
+                    assert result == "prompt-token"
+                    mock_prompt.assert_called_once()
 
 
 class TestInteractiveLoginHelpers:
@@ -697,11 +698,12 @@ class TestInteractiveLoginHelpers:
     def test_resolve_interactive_chat_token_prompts_when_missing(self) -> None:
         """Testa login interativo quando não há token resolvido."""
         with patch.dict("os.environ", {}, clear=True):
-            with patch(
-                "labia_chat.cli.prompt_for_ai_scope_login",
-                return_value="login-token",
-            ) as prompt:
-                result = resolve_interactive_chat_token(None)
+            with patch("labia_chat.cli.get_cached_session", return_value=None):
+                with patch(
+                    "labia_chat.cli.prompt_for_ai_scope_login",
+                    return_value="login-token",
+                ) as prompt:
+                    result = resolve_interactive_chat_token(None)
 
         assert result == "login-token"
         prompt.assert_called_once()
@@ -1638,7 +1640,6 @@ class TestHistoryCommand:
                         "123e4567-e89b-12d3-a456-426614174000", limit=10
                     )
 
-
     def test_history_command_passes_prompt_session_to_selector(self) -> None:
         """Testa que /history preserva o modo interativo por setas."""
         args = argparse.Namespace(
@@ -1871,7 +1872,7 @@ class TestAuthMeCommand:
         with patch("labia_chat.cli.resolve_api_url") as mock_resolve_api:
             mock_resolve_api.return_value = "http://example.com"
 
-            with patch("labia_chat.cli.resolve_token_required") as mock_resolve_token:
+            with patch("labia_chat.cli.resolve_token") as mock_resolve_token:
                 mock_resolve_token.return_value = "env-token"
 
                 with patch("labia_chat.cli.CLIClient") as MockClient:
@@ -1889,6 +1890,55 @@ class TestAuthMeCommand:
 
                     assert result == 0
                     mock_client.set_token.assert_called_once_with("env-token")
+                    assert mock_resolve_token.call_args == (
+                        (None,),
+                        {"allow_interactive_login": True},
+                    )
+
+    def test_auth_me_with_session_token(self) -> None:
+        """Testa 'auth me' usando token de sessão salva."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token=None,
+        )
+
+        with patch("labia_chat.cli.resolve_api_url") as mock_resolve_api:
+            mock_resolve_api.return_value = "http://example.com"
+
+            with patch("labia_chat.cli.resolve_token") as mock_resolve_token:
+                mock_resolve_token.return_value = "session-token"
+
+                with patch("labia_chat.cli.CLIClient") as MockClient:
+                    mock_client = MagicMock()
+                    MockClient.return_value = mock_client
+
+                    mock_client.validate_token.return_value = {
+                        "id": "user123",
+                        "username": "testuser",
+                    }
+
+                    result = auth_me_command(args)
+
+                    assert result == 0
+                    mock_client.set_token.assert_called_once_with("session-token")
+
+    def test_auth_me_login_error(self) -> None:
+        """Testa 'auth me' com erro de login."""
+        from labia_chat.cli_auth import LoginError
+
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token=None,
+        )
+
+        with patch("labia_chat.cli.resolve_token") as mock_resolve_token:
+            mock_resolve_token.side_effect = LoginError("Token ausente")
+
+            with patch("labia_chat.cli.print_cli_error") as mock_print:
+                result = auth_me_command(args)
+
+                assert result == 1
+                mock_print.assert_called_once()
 
     def test_auth_me_auth_error(self) -> None:
         """Testa 'auth me' com token inválido."""
@@ -1951,6 +2001,123 @@ class TestAuthMeCommand:
             result = auth_me_command(args)
 
             assert result == 1
+
+
+class TestAuthLoginCommand:
+    """Testes do comando 'auth login'."""
+
+    def test_auth_login_success(self) -> None:
+        """Testa 'auth login' com sucesso e salvamento de sessão."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+        )
+
+        with patch("labia_chat.cli_client.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+            mock_client.validate_token.return_value = {
+                "id": "user123",
+                "username": "testuser",
+                "email": "test@example.com",
+                "is_active": True,
+            }
+
+            with patch("labia_chat.cli.input") as mock_input:
+                mock_input.return_value = "testuser"
+                with patch("labia_chat.cli.getpass.getpass") as mock_getpass:
+                    mock_getpass.return_value = "testpassword"
+                    with patch(
+                        "labia_chat.cli.login_ai_scope_with_api_url"
+                    ) as mock_login:
+                        mock_login.return_value = "new-access-token-123"
+                        with patch("labia_chat.cli_session.save_session") as mock_save:
+                            result = auth_login_command(args)
+
+                            assert result == 0
+                            mock_input.assert_called_once_with("AI-Scope username: ")
+                            mock_getpass.assert_called_once_with("AI-Scope password: ")
+                            mock_login.assert_called_once_with(
+                                "testuser", "testpassword", "http://example.com"
+                            )
+                            mock_save.assert_called_once_with(
+                                "new-access-token-123",
+                                {
+                                    "username": "testuser",
+                                    "api_url": "http://example.com",
+                                },
+                            )
+                            mock_client.validate_token.assert_called_once()
+
+    def test_auth_login_login_error(self) -> None:
+        """Testa 'auth login' com erro de login."""
+        from labia_chat.cli_auth import LoginError
+
+        args = argparse.Namespace(
+            api_url="http://example.com",
+        )
+
+        with patch("labia_chat.cli.input") as mock_input:
+            mock_input.return_value = "testuser"
+            with patch("labia_chat.cli.getpass.getpass") as mock_getpass:
+                mock_getpass.return_value = "testpassword"
+                with patch("labia_chat.cli.login_ai_scope_with_api_url") as mock_login:
+                    mock_login.side_effect = LoginError("Login recusado")
+                    with patch("labia_chat.cli.print_cli_error") as mock_print:
+                        result = auth_login_command(args)
+
+                        assert result == 1
+                        mock_print.assert_called_once()
+
+    def test_auth_login_prints_user_summary(self) -> None:
+        """Testa que 'auth login' imprime resumo do usuário."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+        )
+
+        with patch("labia_chat.cli_client.CLIClient") as MockClient:
+            mock_client = MagicMock()
+            MockClient.return_value = mock_client
+            mock_client.validate_token.return_value = {
+                "username": "testuser",
+                "email": "test@example.com",
+                "is_active": True,
+            }
+
+            with patch("labia_chat.cli.input") as mock_input:
+                mock_input.return_value = "testuser"
+                with patch("labia_chat.cli.getpass.getpass") as mock_getpass:
+                    mock_getpass.return_value = "testpassword"
+                    with patch(
+                        "labia_chat.cli.login_ai_scope_with_api_url"
+                    ) as mock_login:
+                        mock_login.return_value = "new-token"
+                        with patch("labia_chat.cli.print_user_summary") as mock_summary:
+                            auth_login_command(args)
+                            mock_summary.assert_called_once_with(
+                                {
+                                    "username": "testuser",
+                                    "email": "test@example.com",
+                                    "is_active": True,
+                                }
+                            )
+
+
+class TestAuthLogoutCommand:
+    """Testes do comando 'auth logout'."""
+
+    def test_auth_logout_clears_session(self) -> None:
+        """Testa que 'auth logout' limpa a sessão."""
+        args = argparse.Namespace()
+
+        with patch("labia_chat.cli_session.clear_session") as mock_clear:
+            with patch("labia_chat.cli.print_info") as mock_print:
+                result = auth_logout_command(args)
+
+                assert result == 0
+                mock_clear.assert_called_once()
+                mock_print.assert_called_once_with(
+                    "Sessão limpa. Você precisará fazer login novamente."
+                )
 
 
 class TestConversationsCreateCommand:
@@ -2752,18 +2919,23 @@ class TestDefaultInteractiveEntrypoint:
     def test_no_argument_invocation_prompts_login_when_token_missing(self) -> None:
         """Testa que labia-chat sem token faz login interativo."""
         with patch.dict("os.environ", {}, clear=True):
-            with patch(
-                "labia_chat.cli.prompt_for_ai_scope_login",
-                return_value="login-token",
-            ) as prompt_login:
-                with patch("labia_chat.cli.CLIClient") as MockClient:
-                    mock_client = MockClient.return_value
-                    mock_client.validate_token.return_value = {"username": "testuser"}
-                    mock_client.create_conversation.return_value = {"id": "conv-123"}
+            with patch("labia_chat.cli.get_cached_session", return_value=None):
+                with patch(
+                    "labia_chat.cli.prompt_for_ai_scope_login",
+                    return_value="login-token",
+                ) as prompt_login:
+                    with patch("labia_chat.cli.CLIClient") as MockClient:
+                        mock_client = MockClient.return_value
+                        mock_client.validate_token.return_value = {
+                            "username": "testuser"
+                        }
+                        mock_client.create_conversation.return_value = {
+                            "id": "conv-123"
+                        }
 
-                    with patch("sys.argv", ["labia-chat"]):
-                        with patch("labia_chat.cli.input", return_value="/exit"):
-                            result = main()
+                        with patch("sys.argv", ["labia-chat"]):
+                            with patch("labia_chat.cli.input", return_value="/exit"):
+                                result = main()
 
         assert result == 0
         prompt_login.assert_called_once()
@@ -2774,18 +2946,23 @@ class TestDefaultInteractiveEntrypoint:
     def test_chat_command_prompts_login_when_token_missing(self) -> None:
         """Testa que labia-chat chat sem token faz login interativo."""
         with patch.dict("os.environ", {}, clear=True):
-            with patch(
-                "labia_chat.cli.prompt_for_ai_scope_login",
-                return_value="login-token",
-            ) as prompt_login:
-                with patch("labia_chat.cli.CLIClient") as MockClient:
-                    mock_client = MockClient.return_value
-                    mock_client.validate_token.return_value = {"username": "testuser"}
-                    mock_client.create_conversation.return_value = {"id": "conv-123"}
+            with patch("labia_chat.cli.get_cached_session", return_value=None):
+                with patch(
+                    "labia_chat.cli.prompt_for_ai_scope_login",
+                    return_value="login-token",
+                ) as prompt_login:
+                    with patch("labia_chat.cli.CLIClient") as MockClient:
+                        mock_client = MockClient.return_value
+                        mock_client.validate_token.return_value = {
+                            "username": "testuser"
+                        }
+                        mock_client.create_conversation.return_value = {
+                            "id": "conv-123"
+                        }
 
-                    with patch("sys.argv", ["labia-chat", "chat"]):
-                        with patch("labia_chat.cli.input", return_value="/exit"):
-                            result = main()
+                        with patch("sys.argv", ["labia-chat", "chat"]):
+                            with patch("labia_chat.cli.input", return_value="/exit"):
+                                result = main()
 
         assert result == 0
         prompt_login.assert_called_once()
@@ -2794,21 +2971,24 @@ class TestDefaultInteractiveEntrypoint:
     def test_last_prompts_login_when_token_missing(self) -> None:
         """Testa que labia-chat --last sem token faz login interativo."""
         with patch.dict("os.environ", {}, clear=True):
-            with patch(
-                "labia_chat.cli.prompt_for_ai_scope_login",
-                return_value="login-token",
-            ) as prompt_login:
-                with patch("labia_chat.cli.CLIClient") as MockClient:
-                    mock_client = MockClient.return_value
-                    mock_client.validate_token.return_value = {"username": "testuser"}
-                    mock_client.list_conversations.return_value = [
-                        {"id": "conv-123", "title": "Última conversa"}
-                    ]
-                    mock_client.list_messages.return_value = []
+            with patch("labia_chat.cli.get_cached_session", return_value=None):
+                with patch(
+                    "labia_chat.cli.prompt_for_ai_scope_login",
+                    return_value="login-token",
+                ) as prompt_login:
+                    with patch("labia_chat.cli.CLIClient") as MockClient:
+                        mock_client = MockClient.return_value
+                        mock_client.validate_token.return_value = {
+                            "username": "testuser"
+                        }
+                        mock_client.list_conversations.return_value = [
+                            {"id": "conv-123", "title": "Última conversa"}
+                        ]
+                        mock_client.list_messages.return_value = []
 
-                    with patch("sys.argv", ["labia-chat", "--last"]):
-                        with patch("labia_chat.cli.input", return_value="/exit"):
-                            result = main()
+                        with patch("sys.argv", ["labia-chat", "--last"]):
+                            with patch("labia_chat.cli.input", return_value="/exit"):
+                                result = main()
 
         assert result == 0
         prompt_login.assert_called_once()
@@ -2818,21 +2998,24 @@ class TestDefaultInteractiveEntrypoint:
     def test_resume_last_prompts_login_when_token_missing(self) -> None:
         """Testa que labia-chat --resume-last sem token faz login interativo."""
         with patch.dict("os.environ", {}, clear=True):
-            with patch(
-                "labia_chat.cli.prompt_for_ai_scope_login",
-                return_value="login-token",
-            ) as prompt_login:
-                with patch("labia_chat.cli.CLIClient") as MockClient:
-                    mock_client = MockClient.return_value
-                    mock_client.validate_token.return_value = {"username": "testuser"}
-                    mock_client.list_conversations.return_value = [
-                        {"id": "conv-123", "title": "Última conversa"}
-                    ]
-                    mock_client.list_messages.return_value = []
+            with patch("labia_chat.cli.get_cached_session", return_value=None):
+                with patch(
+                    "labia_chat.cli.prompt_for_ai_scope_login",
+                    return_value="login-token",
+                ) as prompt_login:
+                    with patch("labia_chat.cli.CLIClient") as MockClient:
+                        mock_client = MockClient.return_value
+                        mock_client.validate_token.return_value = {
+                            "username": "testuser"
+                        }
+                        mock_client.list_conversations.return_value = [
+                            {"id": "conv-123", "title": "Última conversa"}
+                        ]
+                        mock_client.list_messages.return_value = []
 
-                    with patch("sys.argv", ["labia-chat", "--resume-last"]):
-                        with patch("labia_chat.cli.input", return_value="/exit"):
-                            result = main()
+                        with patch("sys.argv", ["labia-chat", "--resume-last"]):
+                            with patch("labia_chat.cli.input", return_value="/exit"):
+                                result = main()
 
         assert result == 0
         prompt_login.assert_called_once()
@@ -2876,12 +3059,13 @@ class TestDefaultInteractiveEntrypoint:
     def test_login_failure_does_not_print_password_or_token(self, capsys) -> None:
         """Testa erro de login sem vazamento de senha/token."""
         with patch.dict("os.environ", {}, clear=True):
-            with patch(
-                "labia_chat.cli.prompt_for_ai_scope_login",
-                side_effect=LoginError("Login AI-Scope recusado."),
-            ):
-                with patch("sys.argv", ["labia-chat"]):
-                    result = main()
+            with patch("labia_chat.cli.get_cached_session", return_value=None):
+                with patch(
+                    "labia_chat.cli.prompt_for_ai_scope_login",
+                    side_effect=LoginError("Login AI-Scope recusado."),
+                ):
+                    with patch("sys.argv", ["labia-chat"]):
+                        result = main()
 
         output = capsys.readouterr().out
         assert result == 1
@@ -2895,7 +3079,6 @@ class TestDefaultInteractiveEntrypoint:
     ) -> None:
         """Testa que comandos não interativos falham sem prompt."""
         commands = [
-            auth_me_command,
             conversations_list_command,
             messages_list_command,
             chat_send_command,
@@ -2911,12 +3094,13 @@ class TestDefaultInteractiveEntrypoint:
         )
 
         with patch.dict("os.environ", {}, clear=True):
-            with patch("labia_chat.cli.prompt_for_ai_scope_login") as prompt_login:
-                with patch("labia_chat.cli.getpass.getpass") as getpass_prompt:
-                    results = [command(args) for command in commands]
+            with patch("labia_chat.cli.get_cached_session", return_value=None):
+                with patch("labia_chat.cli.prompt_for_ai_scope_login") as prompt_login:
+                    with patch("labia_chat.cli.getpass.getpass") as getpass_prompt:
+                        results = [command(args) for command in commands]
 
         output = capsys.readouterr().out
-        assert results == [1, 1, 1, 1]
+        assert results == [1, 1, 1]
         assert "token AI-Scope ausente" in output
         prompt_login.assert_not_called()
         getpass_prompt.assert_not_called()
