@@ -352,6 +352,22 @@ def print_user_summary(user_data: dict) -> None:
     print(f"Ativo: {status}")
 
 
+def print_user_roles(user_data: dict) -> None:
+    """
+    Imprime as roles do usuário e indica status do chat_vllm.
+
+    Args:
+        user_data: Dados do usuário retornado por /auth/me.
+    """
+    roles = user_data.get("roles", [])
+    print("Roles:")
+    if not roles:
+        print("  (nenhuma)")
+    else:
+        for role in roles:
+            print(f"  - {role}")
+
+
 def print_conversation_summary(conversation: dict) -> None:
     """
     Imprime um resumo compacto da conversa.
@@ -1351,8 +1367,27 @@ def doctor_command(args: argparse.Namespace) -> int:
     Returns:
         Código de saída.
     """
+    from labia_chat.cli_auth import LoginError
+
     api_url, api_source = resolve_api_url_with_source_config(args.api_url)
-    token, token_source = resolve_token_optional_with_source_config(args.token)
+
+    # Determine token resolution method based on --login flag
+    if getattr(args, "login", False):
+        # With --login: use authenticated command token resolution (may prompt)
+        try:
+            token = resolve_authenticated_command_token(
+                args.token,
+                api_url=api_url,
+                allow_interactive_login=True,
+            )
+            token_source = "login" if args.token is None else "argument"
+        except LoginError as e:
+            print_cli_error(e)
+            return 1
+    else:
+        # Without --login: side-effect free, no prompting
+        token, token_source = resolve_token_optional_with_source_config(args.token)
+
     has_failure = False
 
     print("labia-chat doctor")
@@ -1384,6 +1419,29 @@ def doctor_command(args: argparse.Namespace) -> int:
                 user_data = client.validate_token()
                 username = user_data.get("username", "authenticated user")
                 print_diagnostic("ok", "GET /auth/me", str(username))
+
+                # Print user summary and roles if --login was used
+                if getattr(args, "login", False):
+                    print_user_summary(user_data)
+                    print_user_roles(user_data)
+
+                    # Check for chat_vllm role
+                    roles = user_data.get("roles", [])
+                    has_chat_vllm = "chat_vllm" in roles
+                    print(f"Role chat_vllm: {'Sim' if has_chat_vllm else 'Não'}")
+
+                    # Fail if user is inactive
+                    if not user_data.get("is_active", True):
+                        print_error("Erro: usuário inativo. Contate o administrador.")
+                        has_failure = True
+
+                    # Fail if user lacks chat_vllm role
+                    if not has_chat_vllm:
+                        print_error(
+                            "Erro: usuário não possui a role 'chat_vllm'. "
+                            "Contate o administrador para solicitar acesso."
+                        )
+                        has_failure = True
             except (
                 AuthError,
                 CLIPermissionError,
@@ -2181,6 +2239,11 @@ def main() -> int:
         "--with-model",
         action="store_true",
         help="Também executa POST /chat/model/ping",
+    )
+    doctor_parser.add_argument(
+        "--login",
+        action="store_true",
+        help="Faz login AI-Scope se necessário e valida permissões",
     )
 
     # Comando auth

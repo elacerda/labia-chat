@@ -931,6 +931,214 @@ class TestDoctorCommand:
         mock_client.close.assert_called_once()
 
 
+class TestDoctorCommandWithLogin:
+    """Testes do comando 'doctor --login'."""
+
+    def test_doctor_with_login_prompts_when_no_token(self, capsys) -> None:
+        """Testa que doctor --login faz login interativo quando sem token."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token=None,
+            with_model=False,
+            login=True,
+        )
+
+        with patch(
+            "labia_chat.cli.resolve_authenticated_command_token"
+        ) as mock_resolve:
+            mock_resolve.return_value = "test-token"
+
+            with patch("labia_chat.cli.CLIClient") as MockClient:
+                mock_client = MagicMock()
+                MockClient.return_value = mock_client
+                mock_client.health_check.return_value = {"status": "ok"}
+                mock_client.validate_token.return_value = {
+                    "username": "testuser",
+                    "email": "test@example.com",
+                    "is_active": True,
+                    "id": "user-123",
+                    "roles": ["user", "chat_vllm"],
+                }
+
+                result = doctor_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        mock_resolve.assert_called_once_with(
+            None, api_url="http://example.com", allow_interactive_login=True
+        )
+        assert "Token: configured (source: login)" in output
+        assert "[ok] GET /auth/me: testuser" in output
+        assert "Usuário: testuser" in output
+        assert "E-mail: test@example.com" in output
+        assert "Role chat_vllm: Sim" in output
+        mock_client.close.assert_called_once()
+
+    def test_doctor_with_login_uses_cached_session(self, capsys) -> None:
+        """Testa que doctor --login reutiliza sessão salva."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token=None,
+            with_model=False,
+            login=True,
+        )
+
+        with patch(
+            "labia_chat.cli.resolve_authenticated_command_token"
+        ) as mock_resolve:
+            mock_resolve.return_value = "cached-token"
+
+            with patch("labia_chat.cli.CLIClient") as MockClient:
+                mock_client = MagicMock()
+                MockClient.return_value = mock_client
+                mock_client.health_check.return_value = {"status": "ok"}
+                mock_client.validate_token.return_value = {
+                    "username": "cacheduser",
+                    "email": "cached@example.com",
+                    "is_active": True,
+                    "id": "user-456",
+                    "roles": ["user", "chat_vllm"],
+                }
+
+                result = doctor_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        assert "Token: configured (source: login)" in output
+        assert "Usuário: cacheduser" in output
+        assert "Role chat_vllm: Sim" in output
+        mock_client.validate_token.assert_called_once()
+        mock_client.close.assert_called_once()
+
+    def test_doctor_with_login_validates_chat_vllm_role(self, capsys) -> None:
+        """Testa que doctor --login valida role chat_vllm."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token=None,
+            with_model=False,
+            login=True,
+        )
+
+        with patch(
+            "labia_chat.cli.resolve_authenticated_command_token"
+        ) as mock_resolve:
+            mock_resolve.return_value = "test-token"
+
+            with patch("labia_chat.cli.CLIClient") as MockClient:
+                mock_client = MagicMock()
+                MockClient.return_value = mock_client
+                mock_client.health_check.return_value = {"status": "ok"}
+                mock_client.validate_token.return_value = {
+                    "username": "testuser",
+                    "email": "test@example.com",
+                    "is_active": True,
+                    "id": "user-123",
+                    "roles": ["user", "chat_vllm"],
+                }
+
+                result = doctor_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        assert "Role chat_vllm: Sim" in output
+
+    def test_doctor_with_login_fails_without_chat_vllm(self, capsys) -> None:
+        """Testa que doctor --login falha sem role chat_vllm."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token=None,
+            with_model=False,
+            login=True,
+        )
+
+        with patch(
+            "labia_chat.cli.resolve_authenticated_command_token"
+        ) as mock_resolve:
+            mock_resolve.return_value = "test-token"
+
+            with patch("labia_chat.cli.CLIClient") as MockClient:
+                mock_client = MagicMock()
+                MockClient.return_value = mock_client
+                mock_client.health_check.return_value = {"status": "ok"}
+                mock_client.validate_token.return_value = {
+                    "username": "testuser",
+                    "email": "test@example.com",
+                    "is_active": True,
+                    "id": "user-123",
+                    "roles": ["user"],  # Missing chat_vllm
+                }
+
+                result = doctor_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 1
+        assert "Role chat_vllm: Não" in output
+        assert "Erro: usuário não possui a role 'chat_vllm'" in output
+
+    def test_doctor_with_login_fails_when_inactive_user(self, capsys) -> None:
+        """Testa que doctor --login falha com usuário inativo."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token=None,
+            with_model=False,
+            login=True,
+        )
+
+        with patch(
+            "labia_chat.cli.resolve_authenticated_command_token"
+        ) as mock_resolve:
+            mock_resolve.return_value = "test-token"
+
+            with patch("labia_chat.cli.CLIClient") as MockClient:
+                mock_client = MagicMock()
+                MockClient.return_value = mock_client
+                mock_client.health_check.return_value = {"status": "ok"}
+                mock_client.validate_token.return_value = {
+                    "username": "testuser",
+                    "email": "test@example.com",
+                    "is_active": False,  # Inactive user
+                    "id": "user-123",
+                    "roles": ["user", "chat_vllm"],
+                }
+
+                result = doctor_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 1
+        assert "Erro: usuário inativo" in output
+
+    def test_doctor_with_login_in_noninteractive_fails_with_guidance(
+        self, capsys
+    ) -> None:
+        """Testa que doctor --login falha em modo não interativo com orientação."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token=None,
+            with_model=False,
+            login=True,
+        )
+
+        with patch(
+            "labia_chat.cli.resolve_authenticated_command_token"
+        ) as mock_resolve:
+            mock_resolve.side_effect = LoginError(
+                "Token AI-Scope ausente. Informe --token ou LABIA_CHAT_TOKEN, "
+                "ou execute `labia-chat auth login` para fazer login."
+            )
+
+            with patch("labia_chat.cli.CLIClient") as MockClient:
+                mock_client = MagicMock()
+                MockClient.return_value = mock_client
+                mock_client.health_check.return_value = {"status": "ok"}
+
+                result = doctor_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 1
+        assert "Token AI-Scope ausente" in output
+        assert "labia-chat auth login" in output
+
+
 class TestChatCommand:
     """Testes do comando chat."""
 
