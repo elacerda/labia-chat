@@ -13,7 +13,11 @@ except ImportError:  # pragma: no cover - readline is platform dependent.
     readline: Any | None = None
 
 from labia_chat import __version__
-from labia_chat.cli_auth import LoginError, prompt_for_ai_scope_login
+from labia_chat.cli_auth import (
+    LoginError,
+    prompt_for_ai_scope_login,
+    store_session_after_login,
+)
 from labia_chat.cli_client import (
     AuthError,
     BackendError,
@@ -182,6 +186,59 @@ def resolve_token_required(args_token: str | None) -> str | None:
     """
     token, _source = resolve_token_optional_with_source_config(args_token)
     return token
+
+
+def resolve_authenticated_command_token(
+    args_token: str | None,
+    *,
+    api_url: str,
+    allow_interactive_login: bool | None = None,
+) -> str:
+    """
+    Resolve token for authenticated non-interactive CLI commands.
+
+    Token resolution order:
+    1. Explicit --token argument (highest precedence)
+    2. LABIA_CHAT_TOKEN environment variable
+    3. Saved local session from ~/.local/state/labia-chat/session.json
+    4. If allow_interactive_login is True and terminal is interactive:
+       perform AI-Scope login using perform_interactive_ai_scope_login()
+    5. Else fail with clear guidance
+
+    Args:
+        args_token: Value passed via --token argument.
+        api_url: The API URL to use for login (for session storage).
+        allow_interactive_login: Controls interactive login behavior:
+            - True: Always allow interactive login
+            - False: Never allow interactive login
+            - None: Auto-detect based on sys.stdin.isatty()
+
+    Returns:
+        The resolved token string.
+
+    Raises:
+        LoginError: If no token found and interactive login not allowed
+            or if login is cancelled.
+    """
+    if args_token:
+        return args_token
+    env_token = os.environ.get("LABIA_CHAT_TOKEN")
+    if env_token:
+        return env_token
+    # Try saved session
+    session_token = get_cached_session()
+    if session_token:
+        return session_token
+    # Auto-detect interactive mode if not explicitly set
+    if allow_interactive_login is None:
+        allow_interactive_login = sys.stdin.isatty()
+    # Only prompt if allow_interactive_login is True
+    if allow_interactive_login:
+        return perform_interactive_ai_scope_login(api_url)
+    raise LoginError(
+        "Token AI-Scope ausente. Informe --token ou LABIA_CHAT_TOKEN, "
+        "ou execute `labia-chat auth login` para fazer login."
+    )
 
 
 def resolve_interactive_chat_token(args_token: str | None) -> str:
@@ -1499,23 +1556,16 @@ def auth_login_command(args: argparse.Namespace) -> int:
     Returns:
         Código de saída (0 para sucesso, 1 para erro).
     """
-    from labia_chat.cli_auth import (
-        LoginError,
-        store_session_after_login,
-    )
+    from labia_chat.cli_auth import LoginError
     from labia_chat.cli_client import CLIClient
 
     api_url = resolve_api_url(args.api_url)
 
     try:
-        username, password = _prompt_for_credentials()
-        token = login_ai_scope_with_api_url(username, password, api_url)
+        token = perform_interactive_ai_scope_login(api_url)
     except LoginError as e:
         print_cli_error(e)
         return 1
-
-    # Store the session
-    store_session_after_login(token, username, api_url)
 
     # Validate and print user summary
     client = CLIClient(api_url)
@@ -1588,6 +1638,28 @@ def login_ai_scope_with_api_url(
     )
 
 
+def perform_interactive_ai_scope_login(api_url: str) -> str:
+    """
+    Prompt for AI-Scope login, perform authentication, save session, and return token.
+
+    Reuses existing _prompt_for_credentials(), login_ai_scope_with_api_url(),
+    and store_session_after_login() for consistent login behavior.
+
+    Args:
+        api_url: The API URL (from args.api_url or resolved default).
+
+    Returns:
+        The access token.
+
+    Raises:
+        LoginError: If login fails or is cancelled.
+    """
+    username, password = _prompt_for_credentials()
+    token = login_ai_scope_with_api_url(username, password, api_url)
+    store_session_after_login(token, username, api_url)
+    return token
+
+
 def auth_logout_command(args: argparse.Namespace) -> int:
     """
     Executa o comando 'auth logout' para limpar sessão salva.
@@ -1616,10 +1688,7 @@ def conversations_create_command(args: argparse.Namespace) -> int:
         Código de saída (0 para sucesso, 1 para erro).
     """
     api_url = resolve_api_url(args.api_url)
-    token = resolve_token_required(args.token)
-    if not token:
-        print_missing_token_error()
-        return 1
+    token = resolve_authenticated_command_token(args.token, api_url=api_url)
 
     client = CLIClient(api_url)
 
@@ -1644,6 +1713,9 @@ def conversations_create_command(args: argparse.Namespace) -> int:
     except ConnectionError as e:
         print_cli_error(e)
         return 1
+    except LoginError as e:
+        print_cli_error(e)
+        return 1
     finally:
         client.close()
 
@@ -1659,14 +1731,10 @@ def conversations_list_command(args: argparse.Namespace) -> int:
         Código de saída (0 para sucesso, 1 para erro).
     """
     api_url = resolve_api_url(args.api_url)
-    token = resolve_token_required(args.token)
-    if not token:
-        print_missing_token_error()
-        return 1
-
     client = CLIClient(api_url)
 
     try:
+        token = resolve_authenticated_command_token(args.token, api_url=api_url)
         client.set_token(token)
         conversations = client.list_conversations(limit=args.limit, offset=args.offset)
         print_conversations_list(conversations)
@@ -1686,6 +1754,9 @@ def conversations_list_command(args: argparse.Namespace) -> int:
     except ConnectionError as e:
         print_cli_error(e)
         return 1
+    except LoginError as e:
+        print_cli_error(e)
+        return 1
     finally:
         client.close()
 
@@ -1701,14 +1772,10 @@ def messages_list_command(args: argparse.Namespace) -> int:
         Código de saída (0 para sucesso, 1 para erro).
     """
     api_url = resolve_api_url(args.api_url)
-    token = resolve_token_required(args.token)
-    if not token:
-        print_missing_token_error()
-        return 1
-
     client = CLIClient(api_url)
 
     try:
+        token = resolve_authenticated_command_token(args.token, api_url=api_url)
         client.set_token(token)
         messages = client.list_messages(
             args.conversation_id, limit=args.limit, offset=args.offset
@@ -1733,6 +1800,9 @@ def messages_list_command(args: argparse.Namespace) -> int:
     except ConnectionError as e:
         print_cli_error(e)
         return 1
+    except LoginError as e:
+        print_cli_error(e)
+        return 1
     finally:
         client.close()
 
@@ -1748,35 +1818,12 @@ def chat_send_command(args: argparse.Namespace) -> int:
         Código de saída (0 para sucesso, 1 para erro).
     """
     api_url = resolve_api_url(args.api_url)
-    token = resolve_token_required(args.token)
-    if not token:
-        print_missing_token_error()
-        return 1
-
     client = CLIClient(api_url)
 
     try:
+        token = resolve_authenticated_command_token(args.token, api_url=api_url)
         client.set_token(token)
         client.conversation_id = args.conversation_id
-
-        # Valida o token primeiro
-        try:
-            client.validate_token()
-        except AuthError as e:
-            print_cli_error(e)
-            return 1
-        except CLIPermissionError as e:
-            print_cli_error(e)
-            return 1
-        except ValidationError as e:
-            print_cli_error(e)
-            return 1
-        except BackendError as e:
-            print_cli_error(e)
-            return 1
-        except ConnectionError as e:
-            print_cli_error(e)
-            return 1
 
         # Envia a mensagem
         try:
@@ -1806,6 +1853,12 @@ def chat_send_command(args: argparse.Namespace) -> int:
         except ConnectionError as e:
             print_cli_error(e)
             return 1
+        except LoginError as e:
+            print_cli_error(e)
+            return 1
+    except LoginError as e:
+        print_cli_error(e)
+        return 1
 
     finally:
         client.close()

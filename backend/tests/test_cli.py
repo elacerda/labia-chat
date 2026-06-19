@@ -35,6 +35,7 @@ from labia_chat.cli import (
     prompt_conversation_history_action_fallback,
     remove_conversation_history_row,
     resolve_api_url,
+    resolve_authenticated_command_token,
     resolve_conversation_history_delete_selection,
     resolve_conversation_history_selection,
     resolve_interactive_chat_token,
@@ -2215,11 +2216,6 @@ class TestChatSendCommand:
             mock_client = MagicMock()
             MockClient.return_value = mock_client
 
-            mock_client.validate_token.return_value = {
-                "id": "user123",
-                "username": "testuser",
-            }
-
             mock_client.generate_message.return_value = {
                 "id": "msg-123",
                 "conversation_id": "123e4567-e89b-12d3-a456-426614174000",
@@ -2235,7 +2231,6 @@ class TestChatSendCommand:
 
             assert result == 0
             mock_client.set_token.assert_called_once_with("test-token")
-            mock_client.validate_token.assert_called_once()
             mock_client.generate_message.assert_called_once_with("Olá, mundo!")
             mock_client.close.assert_called_once()
 
@@ -2253,10 +2248,6 @@ class TestChatSendCommand:
             mock_client = MagicMock()
             MockClient.return_value = mock_client
 
-            mock_client.validate_token.return_value = {
-                "id": "user123",
-                "username": "testuser",
-            }
             mock_client.stream_generate_message.return_value = iter(
                 ["Olá", ", mundo", "\n"]
             )
@@ -2284,17 +2275,14 @@ class TestChatSendCommand:
         with patch("labia_chat.cli.resolve_api_url") as mock_resolve_api:
             mock_resolve_api.return_value = "http://example.com"
 
-            with patch("labia_chat.cli.resolve_token_required") as mock_resolve_token:
+            with patch(
+                    "labia_chat.cli.resolve_authenticated_command_token"
+            ) as mock_resolve_token:
                 mock_resolve_token.return_value = "env-token"
 
                 with patch("labia_chat.cli.CLIClient") as MockClient:
                     mock_client = MagicMock()
                     MockClient.return_value = mock_client
-
-                    mock_client.validate_token.return_value = {
-                        "id": "user123",
-                        "username": "testuser",
-                    }
 
                     mock_client.generate_message.return_value = {
                         "content": "Resposta",
@@ -2320,7 +2308,7 @@ class TestChatSendCommand:
             mock_client = MagicMock()
             MockClient.return_value = mock_client
 
-            mock_client.validate_token.side_effect = AuthError("Token inválido")
+            mock_client.generate_message.side_effect = AuthError("Token inválido")
 
             result = chat_send_command(args)
 
@@ -2341,11 +2329,6 @@ class TestChatSendCommand:
         with patch("labia_chat.cli.CLIClient") as MockClient:
             mock_client = MagicMock()
             MockClient.return_value = mock_client
-
-            mock_client.validate_token.return_value = {
-                "id": "user123",
-                "username": "testuser",
-            }
 
             mock_client.generate_message.side_effect = NotFoundError(
                 "Conversa não encontrada"
@@ -2369,11 +2352,6 @@ class TestChatSendCommand:
         with patch("labia_chat.cli.CLIClient") as MockClient:
             mock_client = MagicMock()
             MockClient.return_value = mock_client
-
-            mock_client.validate_token.return_value = {
-                "id": "user123",
-                "username": "testuser",
-            }
 
             mock_client.generate_message.side_effect = BackendError("Erro no backend")
 
@@ -2588,6 +2566,76 @@ class TestMessagesListCommand:
         # Como o argparse já validou, este teste garante que o command
         # não quebra com None, mas o argparse já impede isso
         assert result == 1
+
+
+class TestResolveAuthenticatedCommandToken:
+    """Testes de resolve_authenticated_command_token."""
+
+    def test_flag_takes_precedence_over_env_and_session(self, tmp_path) -> None:
+        """Testa que --token tem precedência maior que env e sessão."""
+        with patch.dict("os.environ", {"LABIA_CHAT_TOKEN": "env-token"}):
+            with patch("labia_chat.cli.get_cached_session") as mock_session:
+                mock_session.return_value = "session-token"
+                with patch("labia_chat.cli.sys.stdin.isatty", return_value=False):
+                    result = resolve_authenticated_command_token(
+                        "flag-token", api_url="http://example.com"
+                    )
+                    assert result == "flag-token"
+
+    def test_env_takes_precedence_over_session(self, tmp_path) -> None:
+        """Testa que env tem precedência sobre sessão."""
+        with patch.dict("os.environ", {"LABIA_CHAT_TOKEN": "env-token"}):
+            with patch("labia_chat.cli.get_cached_session") as mock_session:
+                mock_session.return_value = "session-token"
+                with patch("labia_chat.cli.sys.stdin.isatty", return_value=False):
+                    result = resolve_authenticated_command_token(
+                        None, api_url="http://example.com"
+                    )
+                    assert result == "env-token"
+
+    def test_session_is_used_when_no_flag_or_env(self, tmp_path) -> None:
+        """Testa que sessão é usada quando não há flag nem env."""
+        with patch.dict("os.environ", {"LABIA_CHAT_TOKEN": ""}, clear=True):
+            with patch("labia_chat.cli.get_cached_session") as mock_session:
+                mock_session.return_value = "session-token"
+                with patch("labia_chat.cli.sys.stdin.isatty", return_value=False):
+                    result = resolve_authenticated_command_token(
+                        None, api_url="http://example.com"
+                    )
+                    assert result == "session-token"
+
+    def test_interactive_login_when_no_token_and_interactive(
+        self, tmp_path
+    ) -> None:
+        """Testa login interativo quando não há token e terminal é interativo."""
+        with patch.dict("os.environ", {"LABIA_CHAT_TOKEN": ""}, clear=True):
+            with patch("labia_chat.cli.get_cached_session") as mock_session:
+                mock_session.return_value = None
+                with patch("labia_chat.cli.sys.stdin.isatty", return_value=True):
+                    with patch(
+                        "labia_chat.cli.perform_interactive_ai_scope_login",
+                        return_value="new-token",
+                    ) as mock_login:
+                        result = resolve_authenticated_command_token(
+                            None, api_url="http://example.com"
+                        )
+                        assert result == "new-token"
+                        mock_login.assert_called_once_with("http://example.com")
+
+    def test_non_interactive_failure_with_clear_error(
+        self, tmp_path
+    ) -> None:
+        """Testa falha limpa quando não é interativo e não há token."""
+        with patch.dict("os.environ", {"LABIA_CHAT_TOKEN": ""}, clear=True):
+            with patch("labia_chat.cli.get_cached_session") as mock_session:
+                mock_session.return_value = None
+                with patch("labia_chat.cli.sys.stdin.isatty", return_value=False):
+                    with pytest.raises(LoginError) as exc_info:
+                        resolve_authenticated_command_token(
+                            None, api_url="http://example.com"
+                        )
+                    assert "Token AI-Scope ausente" in str(exc_info.value)
+                    assert "labia-chat auth login" in str(exc_info.value)
 
 
 class TestMainSmokeCommands:
@@ -2868,7 +2916,7 @@ class TestTimeoutAndNetworkErrorHandling:
             mock_client = MagicMock()
             MockClient.return_value = mock_client
 
-            mock_client.validate_token.side_effect = ConnectionError(
+            mock_client.generate_message.side_effect = ConnectionError(
                 "Falha ao conectar com o backend"
             )
 
@@ -3095,15 +3143,12 @@ class TestDefaultInteractiveEntrypoint:
 
         with patch.dict("os.environ", {}, clear=True):
             with patch("labia_chat.cli.get_cached_session", return_value=None):
-                with patch("labia_chat.cli.prompt_for_ai_scope_login") as prompt_login:
-                    with patch("labia_chat.cli.getpass.getpass") as getpass_prompt:
-                        results = [command(args) for command in commands]
+                with patch("labia_chat.cli.sys.stdin.isatty", return_value=False):
+                    results = [command(args) for command in commands]
 
         output = capsys.readouterr().out
         assert results == [1, 1, 1]
-        assert "token AI-Scope ausente" in output
-        prompt_login.assert_not_called()
-        getpass_prompt.assert_not_called()
+        assert "Token AI-Scope ausente" in output
 
     def test_no_argument_invocation_passes_chat_args(self) -> None:
         """Testa que argumentos do chat são passados ao iniciar sem subcomando."""
