@@ -41,9 +41,6 @@ from labia_chat.cli_config import (
 from labia_chat.cli_config import (
     resolve_streaming_default_with_source as _resolve_streaming,
 )
-from labia_chat.cli_config import (
-    resolve_token_optional_with_source as resolve_token_optional_with_source_config,
-)
 from labia_chat.cli_session import get_cached_session
 from labia_chat.cli_ui import (
     print_assistant_message,
@@ -167,13 +164,17 @@ def resolve_token_optional_with_source(
         args_token: Valor passado via --token.
 
     Returns:
-        Tupla com token opcional e origem: argument, env ou missing.
+        Tupla com token opcional e origem: argument, env, session ou missing.
     """
     if args_token:
         return args_token, "argument"
     env_token = os.environ.get("LABIA_CHAT_TOKEN")
     if env_token:
         return env_token, "env"
+    # Try saved session
+    session_token = get_cached_session()
+    if session_token:
+        return session_token, "session"
     return None, "missing"
 
 
@@ -184,7 +185,7 @@ def resolve_token_required(args_token: str | None) -> str | None:
     Returns:
         Token resolvido, ou None quando ausente.
     """
-    token, _source = resolve_token_optional_with_source_config(args_token)
+    token, _source = resolve_token_optional_with_source(args_token)
     return token
 
 
@@ -1302,8 +1303,8 @@ def config_show_command(args: argparse.Namespace) -> int:
     # Resolve show_last default com origem
     show_last_default, show_last_source = _resolve_show_last(None)
 
-    # Resolve token com origem (nunca do config por segurança)
-    token, token_source = resolve_token_optional_with_source_config(args.token)
+    # Resolve token com origem (CLI args > env > session)
+    token, token_source = resolve_token_optional_with_source(args.token)
     token_status = "configurado" if token else "ausente"
 
     print("Configuração do CLI")
@@ -1386,7 +1387,7 @@ def doctor_command(args: argparse.Namespace) -> int:
             return 1
     else:
         # Without --login: side-effect free, no prompting
-        token, token_source = resolve_token_optional_with_source_config(args.token)
+        token, token_source = resolve_token_optional_with_source(args.token)
 
     has_failure = False
 

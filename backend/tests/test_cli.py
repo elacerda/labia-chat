@@ -40,6 +40,7 @@ from labia_chat.cli import (
     resolve_conversation_history_selection,
     resolve_interactive_chat_token,
     resolve_token,
+    resolve_token_optional_with_source,
     resolve_token_required,
     select_conversation_history_action,
     truncate_conversation_title,
@@ -611,6 +612,41 @@ class TestResolveApiUrl:
         assert client.api_url == "http://example.com"
 
 
+class TestResolveTokenOptionalWithSource:
+    """Testes de resolução de token com origem detectável."""
+
+    def test_flag_takes_precedence(self) -> None:
+        """Testa que flag tem precedência sobre env e sessão."""
+        with patch.dict("os.environ", {"LABIA_CHAT_TOKEN": "env-token"}):
+            with patch("labia_chat.cli.get_cached_session") as mock_session:
+                mock_session.return_value = "session-token"
+                result = resolve_token_optional_with_source("flag-token")
+                assert result == ("flag-token", "argument")
+
+    def test_env_takes_precedence_over_session(self) -> None:
+        """Testa que env tem precedência sobre sessão."""
+        with patch.dict("os.environ", {"LABIA_CHAT_TOKEN": "env-token"}, clear=True):
+            with patch("labia_chat.cli.get_cached_session") as mock_session:
+                mock_session.return_value = "session-token"
+                result = resolve_token_optional_with_source(None)
+                assert result == ("env-token", "env")
+
+    def test_session_used_when_no_flag_or_env(self) -> None:
+        """Testa que sessão é usada quando não há flag nem env."""
+        with patch.dict("os.environ", {"LABIA_CHAT_TOKEN": ""}, clear=True):
+            with patch("labia_chat.cli.get_cached_session") as mock_session:
+                mock_session.return_value = "session-token"
+                result = resolve_token_optional_with_source(None)
+                assert result == ("session-token", "session")
+
+    def test_missing_when_no_flag_no_env_no_session(self) -> None:
+        """Testa que missing é retornado quando não há flag, env nem sessão."""
+        with patch.dict("os.environ", {"LABIA_CHAT_TOKEN": ""}, clear=True):
+            with patch("labia_chat.cli.get_cached_session", return_value=None):
+                result = resolve_token_optional_with_source(None)
+                assert result == (None, "missing")
+
+
 class TestResolveToken:
     """Testes de resolução de token."""
 
@@ -735,9 +771,10 @@ class TestInteractiveLoginHelpers:
     def test_resolve_token_required_never_prompts(self) -> None:
         """Testa resolução não interativa sem prompt."""
         with patch.dict("os.environ", {}, clear=True):
-            with patch("labia_chat.cli.prompt_for_ai_scope_login") as prompt_login:
-                with patch("labia_chat.cli.getpass.getpass") as getpass_prompt:
-                    result = resolve_token_required(None)
+            with patch("labia_chat.cli.get_cached_session", return_value=None):
+                with patch("labia_chat.cli.prompt_for_ai_scope_login") as prompt_login:
+                    with patch("labia_chat.cli.getpass.getpass") as getpass_prompt:
+                        result = resolve_token_required(None)
 
         assert result is None
         prompt_login.assert_not_called()
@@ -771,7 +808,8 @@ class TestConfigShowCommand:
             {"XDG_CONFIG_HOME": str(tmp_path)},
             clear=True,
         ):
-            result = config_show_command(args)
+            with patch("labia_chat.cli.get_cached_session", return_value=None):
+                result = config_show_command(args)
 
         output = capsys.readouterr().out
         assert result == 0
@@ -889,12 +927,13 @@ class TestDoctorCommand:
         )
 
         with patch.dict("os.environ", {}, clear=True):
-            with patch("labia_chat.cli.CLIClient") as MockClient:
-                mock_client = MagicMock()
-                MockClient.return_value = mock_client
-                mock_client.health_check.return_value = {"status": "ok"}
+            with patch("labia_chat.cli.get_cached_session", return_value=None):
+                with patch("labia_chat.cli.CLIClient") as MockClient:
+                    mock_client = MagicMock()
+                    MockClient.return_value = mock_client
+                    mock_client.health_check.return_value = {"status": "ok"}
 
-                result = doctor_command(args)
+                    result = doctor_command(args)
 
         output = capsys.readouterr().out
         assert result == 0
@@ -915,19 +954,80 @@ class TestDoctorCommand:
         )
 
         with patch.dict("os.environ", {}, clear=True):
-            with patch("labia_chat.cli.CLIClient") as MockClient:
-                mock_client = MagicMock()
-                MockClient.return_value = mock_client
-                mock_client.health_check.side_effect = ConnectionError(
-                    "Falha de conexão com o backend."
-                )
+            with patch("labia_chat.cli.get_cached_session", return_value=None):
+                with patch("labia_chat.cli.CLIClient") as MockClient:
+                    mock_client = MagicMock()
+                    MockClient.return_value = mock_client
+                    mock_client.health_check.side_effect = ConnectionError(
+                        "Falha de conexão com o backend."
+                    )
 
-                result = doctor_command(args)
+                    result = doctor_command(args)
 
         output = capsys.readouterr().out
         assert result == 1
         assert "[fail] GET /health: Falha de conexão com o backend." in output
         assert "[skip] GET /auth/me: token missing" in output
+        mock_client.close.assert_called_once()
+
+    def test_doctor_uses_saved_session(self, capsys) -> None:
+        """Testa que doctor usa sessão salva quando não há flag nem env."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token=None,
+            with_model=False,
+        )
+
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("labia_chat.cli.get_cached_session") as mock_session:
+                mock_session.return_value = "session-token"
+                with patch("labia_chat.cli.CLIClient") as MockClient:
+                    mock_client = MagicMock()
+                    MockClient.return_value = mock_client
+                    mock_client.health_check.return_value = {"status": "ok"}
+                    mock_client.validate_token.return_value = {
+                        "username": "sessionuser"
+                    }
+
+                    result = doctor_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        assert "Token: configured (source: session)" in output
+        assert "[ok] GET /auth/me: sessionuser" in output
+        mock_client.set_token.assert_called_once_with("session-token")
+        mock_client.validate_token.assert_called_once()
+        mock_client.close.assert_called_once()
+
+    def test_doctor_env_takes_precedence_over_session(self, capsys) -> None:
+        """Testa que env tem precedência sobre sessão."""
+        args = argparse.Namespace(
+            api_url="http://example.com",
+            token=None,
+            with_model=False,
+        )
+
+        with patch.dict(
+            "os.environ", {"LABIA_CHAT_TOKEN": "env-token"}, clear=True
+        ):
+            with patch("labia_chat.cli.get_cached_session") as mock_session:
+                mock_session.return_value = "session-token"
+                with patch("labia_chat.cli.CLIClient") as MockClient:
+                    mock_client = MagicMock()
+                    MockClient.return_value = mock_client
+                    mock_client.health_check.return_value = {"status": "ok"}
+                    mock_client.validate_token.return_value = {
+                        "username": "envuser"
+                    }
+
+                    result = doctor_command(args)
+
+        output = capsys.readouterr().out
+        assert result == 0
+        assert "Token: configured (source: env)" in output
+        assert "[ok] GET /auth/me: envuser" in output
+        mock_client.set_token.assert_called_once_with("env-token")
+        mock_client.validate_token.assert_called_once()
         mock_client.close.assert_called_once()
 
 
