@@ -36,7 +36,7 @@ class TestSettings:
         # assert settings.database_url is None  # Ignorado pois DATABASE_URL pode estar definido no ambiente  # noqa: E501
 
         # Configurações do vLLM
-        assert settings.vllm_base_url == "http://127.0.0.1:8000"
+        assert settings.vllm_base_url == "https://ai-scope.cbpf.br/vllm"
         assert settings.vllm_model == "qwen-coder-next"
         assert settings.vllm_timeout_seconds == 30
         assert settings.vllm_api_key is None

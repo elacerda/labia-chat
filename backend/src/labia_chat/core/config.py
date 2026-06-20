@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     database_url: str | None = None
 
     # Configurações do vLLM (MVP 4)
-    vllm_base_url: str = "http://127.0.0.1:8000"
+    vllm_base_url: str = "https://ai-scope.cbpf.br/vllm"
     vllm_model: str = "qwen-coder-next"
     vllm_timeout_seconds: int = 30
     vllm_api_key: str | None = None

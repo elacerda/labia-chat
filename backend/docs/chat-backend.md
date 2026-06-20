@@ -80,7 +80,7 @@ O endpoint `/generate` permanece disponível e retorna a mensagem completa em JS
 
 | Variável | Padrão | Descrição |
 |----------|--------|-----------|
-| `VLLM_BASE_URL` | `http://127.0.0.1:8000` | URL base do servidor vLLM |
+| `VLLM_BASE_URL` | `https://ai-scope.cbpf.br/vllm` | URL base do servidor vLLM. O cliente acrescenta `/v1/chat/completions` internamente. |
 | `VLLM_MODEL` | `qwen-coder-next` | Nome do modelo a ser usado |
 | `VLLM_TIMEOUT_SECONDS` | `30` | Timeout em segundos para requisições ao vLLM |
 | `VLLM_API_KEY` | *opcional* | API key para autenticação no vLLM |
@@ -180,9 +180,9 @@ curl -s http://127.0.0.1:8000/health
 ### Com API Key (se configurada)
 
 ```bash
-curl -s http://127.0.0.1:8000/v1/chat/completions \
-  -H "Content-Type: application/json" \
+curl -s https://ai-scope.cbpf.br/vllm/v1/chat/completions \
   -H "Authorization: Bearer ${VLLM_API_KEY}" \
+  -H "Content-Type: application/json" \
   -d '{
     "model": "qwen-coder-next",
     "messages": [{"role": "user", "content": "ping"}],
@@ -191,7 +191,7 @@ curl -s http://127.0.0.1:8000/v1/chat/completions \
   }' | python -m json.tool
 ```
 
-### Sem API Key
+### Endpoint local sem API Key, somente para desenvolvimento
 
 ```bash
 curl -s http://127.0.0.1:8000/v1/chat/completions \
@@ -434,7 +434,8 @@ echo "Token inválido ou expirado. Obtenha um novo token no AI-Scope."
 
 ```bash
 # Teste direto
-curl http://127.0.0.1:8000/v1/models
+curl https://ai-scope.cbpf.br/vllm/v1/models \
+  -H "Authorization: Bearer $VLLM_API_KEY"
 
 # Verifique logs do vLLM
 # Verifique se a porta 8000 está aberta
@@ -455,7 +456,8 @@ curl http://127.0.0.1:8000/v1/models
 grep VLLM_BASE_URL backend/.env
 
 # Teste a conexão
-curl -v http://127.0.0.1:8000/v1/models
+curl -v https://ai-scope.cbpf.br/vllm/v1/models \
+  -H "Authorization: Bearer $VLLM_API_KEY"
 ```
 
 ---
