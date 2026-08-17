@@ -94,6 +94,7 @@ class FakeMessageRepository:
         self.create_calls = []
         self.list_for_conversation_calls = []
         self.get_next_sequence_index_calls = []
+        self.list_recent_for_conversation_calls = []
 
     async def create(
         self,
@@ -130,6 +131,13 @@ class FakeMessageRepository:
         """Simula get_next_sequence_index."""
         self.get_next_sequence_index_calls.append((session, conversation_id))
         return 0
+
+    async def list_recent_for_conversation(self, session, conversation_id, limit=50):
+        """Simula list_recent_for_conversation."""
+        self.list_recent_for_conversation_calls.append(
+            (session, conversation_id, limit)
+        )
+        return []
 
 
 class FakeSessionScopeFactory:
@@ -362,6 +370,40 @@ class TestChatPersistenceService:
         assert len(self.message_repo.list_for_conversation_calls) == 1
         call = self.message_repo.list_for_conversation_calls[0]
         assert call[1] == conv_id
+
+    # --- list_recent_messages_for_user ---
+
+    @pytest.mark.asyncio
+    async def test_list_recent_messages_for_user_validates_conversation_ownership(self):
+        """Testa que list_recent_messages_for_user levanta ValueError se conversa não pertence."""  # noqa: E501
+        conv_id = str(uuid.uuid4())
+        wrong_user_id = "wrong_user"
+
+        with pytest.raises(ValueError, match="Conversa não encontrada ou não pertence"):
+            await self.service.list_recent_messages_for_user(
+                conversation_id=conv_id, user_id=wrong_user_id
+            )
+
+        # Verifica que o repositório de mensagens NÃO foi chamado
+        assert len(self.message_repo.list_recent_for_conversation_calls) == 0
+
+    @pytest.mark.asyncio
+    async def test_list_recent_messages_for_user_calls_repository_with_default_limit(
+        self,
+    ):
+        """Testa que list_recent_messages_for_user chama o repository com limit 50."""
+        conv_id = str(uuid.uuid4())
+        user_id = str(uuid.uuid4())
+
+        await self.service.list_recent_messages_for_user(
+            conversation_id=conv_id, user_id=user_id
+        )
+
+        assert len(self.conversation_repo.get_by_id_for_user_calls) == 1
+        assert len(self.message_repo.list_recent_for_conversation_calls) == 1
+        call = self.message_repo.list_recent_for_conversation_calls[0]
+        assert call[1] == conv_id
+        assert call[2] == 50
 
     # --- default session_scope_factory ---
 

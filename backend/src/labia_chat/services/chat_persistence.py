@@ -218,3 +218,39 @@ class ChatPersistenceService:
                 limit=limit,
                 offset=offset,
             )
+
+    async def list_recent_messages_for_user(
+        self, conversation_id: str, user_id: str, limit: int = 50
+    ):
+        """
+        Lista as mensagens mais recentes de uma conversa para geração,
+        validando que a conversa pertence ao usuário.
+
+        Args:
+            conversation_id: ID da conversa (string UUID).
+            user_id: ID do usuário (string UUID).
+            limit: Número máximo de mensagens mais recentes a retornar.
+
+        Returns:
+            Lista de ChatMessage ordenadas por sequence_index asc.
+
+        Raises:
+            ValueError: Se a conversa não existir ou não pertencer ao usuário.
+        """
+        async with self.session_scope_factory() as session:
+            # Verifica que a conversa existe e pertence ao usuário
+            conversation = await self.conversation_repository.get_by_id_for_user(
+                session=session,
+                conversation_id=conversation_id,
+                user_id=user_id,
+            )
+
+            if conversation is None:
+                raise ValueError("Conversa não encontrada ou não pertence ao usuário")
+
+            # Lista as mensagens mais recentes em ordem cronológica
+            return await self.message_repository.list_recent_for_conversation(
+                session=session,
+                conversation_id=conversation_id,
+                limit=limit,
+            )

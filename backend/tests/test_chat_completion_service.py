@@ -25,11 +25,13 @@ class FakePersistenceService:
         self.get_conversation_for_user_calls = []
         self.add_message_for_user_calls = []
         self.list_messages_for_user_calls = []
+        self.list_recent_messages_for_user_calls = []
 
         # Valores de retorno para os métodos
         self.get_conversation_for_user_return = None
         self.add_message_for_user_return = None
         self.list_messages_for_user_return = []
+        self.list_recent_messages_for_user_return = []
 
     async def get_conversation_for_user(self, conversation_id, user_id):
         """Simula get_conversation_for_user."""
@@ -59,6 +61,13 @@ class FakePersistenceService:
             (conversation_id, user_id)
         )
         return self.list_messages_for_user_return
+
+    async def list_recent_messages_for_user(self, conversation_id, user_id):
+        """Simula list_recent_messages_for_user (últimas 50 em ordem cronológica)."""
+        self.list_recent_messages_for_user_calls.append(
+            (conversation_id, user_id)
+        )
+        return self.list_recent_messages_for_user_return[-50:]
 
 
 class FakeGenerationService:
@@ -140,7 +149,7 @@ class TestChatCompletionService:
                 sequence_index=0,
             ),
         ]
-        self.persistence_service.list_messages_for_user_return = fake_messages
+        self.persistence_service.list_recent_messages_for_user_return = fake_messages
 
         # Chama complete
         result = await self.service.complete(
@@ -177,9 +186,9 @@ class TestChatCompletionService:
         assert assistant_call[4] == "qwen-coder-next"  # model correto
         assert assistant_call[5] is None  # metadata=None
 
-        # Verifica que list_messages_for_user foi chamado
-        assert len(self.persistence_service.list_messages_for_user_calls) == 1
-        call = self.persistence_service.list_messages_for_user_calls[0]
+        # Verifica que list_recent_messages_for_user foi chamado
+        assert len(self.persistence_service.list_recent_messages_for_user_calls) == 1
+        call = self.persistence_service.list_recent_messages_for_user_calls[0]
         assert call[0] == self.conversation_id
         assert call[1] == self.user_id
 
@@ -224,7 +233,7 @@ class TestChatCompletionService:
                 sequence_index=0,
             ),
         ]
-        self.persistence_service.list_messages_for_user_return = fake_messages
+        self.persistence_service.list_recent_messages_for_user_return = fake_messages
 
         # Chama complete sem model
         result = await self.service.complete(
@@ -268,7 +277,9 @@ class TestChatCompletionService:
             model="qwen-coder-next",
         )
         self.persistence_service.add_message_for_user_return = fake_user_message
-        self.persistence_service.list_messages_for_user_return = [fake_user_message]
+        self.persistence_service.list_recent_messages_for_user_return = (
+            [fake_user_message]
+        )
 
         stream = await self.service.complete_stream(
             conversation_id=self.conversation_id,
@@ -319,7 +330,9 @@ class TestChatCompletionService:
             sequence_index=0,
         )
         self.persistence_service.add_message_for_user_return = fake_user_message
-        self.persistence_service.list_messages_for_user_return = [fake_user_message]
+        self.persistence_service.list_recent_messages_for_user_return = (
+            [fake_user_message]
+        )
 
         async def failing_stream(messages):
             self.generation_service.generate_stream_calls.append(messages)
@@ -364,7 +377,9 @@ class TestChatCompletionService:
             sequence_index=0,
         )
         self.persistence_service.add_message_for_user_return = fake_user_message
-        self.persistence_service.list_messages_for_user_return = [fake_user_message]
+        self.persistence_service.list_recent_messages_for_user_return = (
+            [fake_user_message]
+        )
 
         async def cancelled_stream(messages):
             self.generation_service.generate_stream_calls.append(messages)
@@ -405,7 +420,9 @@ class TestChatCompletionService:
             sequence_index=0,
         )
         self.persistence_service.add_message_for_user_return = fake_user_message
-        self.persistence_service.list_messages_for_user_return = [fake_user_message]
+        self.persistence_service.list_recent_messages_for_user_return = (
+            [fake_user_message]
+        )
         self.generation_service.generate_stream_chunks = []
 
         stream = await self.service.complete_stream(
@@ -468,7 +485,7 @@ class TestChatCompletionService:
                 sequence_index=2,
             ),
         ]
-        self.persistence_service.list_messages_for_user_return = fake_messages
+        self.persistence_service.list_recent_messages_for_user_return = fake_messages
 
         # Chama complete
         await self.service.complete(
@@ -488,6 +505,101 @@ class TestChatCompletionService:
         assert messages[1]["content"] == "Hello"
         assert messages[2]["role"] == "assistant"
         assert messages[2]["content"] == "Hi there!"
+
+    @pytest.mark.asyncio
+    async def test_complete_beyond_window_includes_newest_and_excludes_oldest(self):
+        """Testa que complete() seleciona as 50 mensagens mais recentes em ordem."""
+        fake_conversation = MagicMock()
+        fake_conversation.id = self.conversation_id
+        fake_conversation.user_id = self.user_id
+        self.persistence_service.get_conversation_for_user_return = fake_conversation
+
+        # Simula 60 mensagens persistidas (índices 0..59); a nova mensagem user
+        # do usuário está no índice 59, dentro da janela de 50.
+        fake_messages = [
+            FakeChatMessage(
+                id=str(uuid.uuid4()),
+                conversation_id=self.conversation_id,
+                role="user" if index == 59 or index % 2 == 0 else "assistant",
+                content=f"msg-{index}",
+                sequence_index=index,
+            )
+            for index in range(60)
+        ]
+        self.persistence_service.list_recent_messages_for_user_return = fake_messages
+
+        await self.service.complete(
+            conversation_id=self.conversation_id,
+            user_id=self.user_id,
+            content="msg-59",
+            model="qwen-coder-next",
+        )
+
+        assert len(self.generation_service.generate_calls) == 1
+        messages = self.generation_service.generate_calls[0]
+
+        # Apenas as 50 mais recentes (índices 10..59) devem chegar ao modelo
+        assert len(messages) == 50
+        assert messages[0]["content"] == "msg-10"
+        # A mensagem mais recente (nova user) deve ser a última enviada ao modelo
+        assert messages[-1] == {"role": "user", "content": "msg-59"}
+
+        # Mensagens fora da janela (índices 0..9) não devem aparecer
+        contents = {message["content"] for message in messages}
+        for index in range(10):
+            assert f"msg-{index}" not in contents
+
+        # A seleção deve permanecer cronológica (mais antiga -> mais recente)
+        assert [m["content"] for m in messages] == [f"msg-{i}" for i in range(10, 60)]
+
+    @pytest.mark.asyncio
+    async def test_complete_stream_beyond_window_includes_newest_and_excludes_oldest(
+        self,
+    ):
+        """Testa que complete_stream() usa a mesma seleção de histórico recente."""
+        fake_conversation = MagicMock()
+        fake_conversation.id = self.conversation_id
+        fake_conversation.user_id = self.user_id
+        self.persistence_service.get_conversation_for_user_return = fake_conversation
+
+        fake_messages = [
+            FakeChatMessage(
+                id=str(uuid.uuid4()),
+                conversation_id=self.conversation_id,
+                role="user" if index == 59 or index % 2 == 0 else "assistant",
+                content=f"msg-{index}",
+                sequence_index=index,
+            )
+            for index in range(60)
+        ]
+        self.persistence_service.list_recent_messages_for_user_return = fake_messages
+
+        stream = await self.service.complete_stream(
+            conversation_id=self.conversation_id,
+            user_id=self.user_id,
+            content="msg-59",
+            model="qwen-coder-next",
+        )
+
+        events = []
+        async for event in stream:
+            events.append(event)
+
+        assert events[:2] == [("text", "Test "), ("text", "response")]
+
+        assert len(self.generation_service.generate_stream_calls) == 1
+        messages = self.generation_service.generate_stream_calls[0]
+
+        assert len(messages) == 50
+        assert messages[0]["content"] == "msg-10"
+        # A mensagem mais recente (nova user) deve ser a última enviada ao modelo
+        assert messages[-1] == {"role": "user", "content": "msg-59"}
+
+        contents = {message["content"] for message in messages}
+        for index in range(10):
+            assert f"msg-{index}" not in contents
+
+        assert [m["content"] for m in messages] == [f"msg-{i}" for i in range(10, 60)]
 
     # --- conversa inexistente/sem ownership ---
 
@@ -560,7 +672,7 @@ class TestChatCompletionService:
                 sequence_index=0,
             ),
         ]
-        self.persistence_service.list_messages_for_user_return = fake_messages
+        self.persistence_service.list_recent_messages_for_user_return = fake_messages
 
         # Configura fake generation service para levantar ChatGenerationError
         self.generation_service.generate = AsyncMock(

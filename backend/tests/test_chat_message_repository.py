@@ -114,6 +114,91 @@ class TestChatMessageRepository:
         query_str = str(self.session.queries[0])
         assert "sequence_index ASC" in query_str
 
+    @pytest.mark.asyncio
+    async def test_list_for_conversation_keeps_offset_pagination_semantics(self):
+        """Testa que list_for_conversation mantém paginação limit/offset asc."""
+        await self.repo.list_for_conversation(
+            self.session, str(uuid.uuid4()), limit=50, offset=0
+        )
+
+        query_str = str(self.session.queries[0])
+        # A lista pública continua cronológica com OFFSET/LIMIT (não seleção recente)
+        assert "sequence_index ASC" in query_str
+        assert "LIMIT :param_1" in query_str
+        assert "OFFSET :param_2" in query_str
+
+    # --- list_recent_for_conversation ---
+
+    @pytest.mark.asyncio
+    async def test_list_recent_for_conversation_orders_by_sequence_index_desc(self):
+        """Testa que list_recent_for_conversation seleciona por sequence_index desc."""
+        await self.repo.list_recent_for_conversation(self.session, str(uuid.uuid4()))
+
+        query_str = str(self.session.queries[0])
+        assert "sequence_index DESC" in query_str
+
+    @pytest.mark.asyncio
+    async def test_list_recent_for_conversation_restores_chronological_order(self):
+        """Testa que list_recent_for_conversation retorna em ordem cronológica asc."""
+        fake_messages = [MagicMock(), MagicMock()]
+        self.session.scalars_results = fake_messages
+
+        result = await self.repo.list_recent_for_conversation(
+            self.session, str(uuid.uuid4())
+        )
+
+        assert result == list(reversed(fake_messages))
+
+    @pytest.mark.asyncio
+    async def test_list_recent_for_conversation_default_limit_50(self):
+        """Testa que list_recent_for_conversation usa limit 50 por padrão."""
+        await self.repo.list_recent_for_conversation(self.session, str(uuid.uuid4()))
+
+        query_str = str(self.session.queries[0])
+        assert "LIMIT :param_1" in query_str
+
+    @pytest.mark.asyncio
+    async def test_list_recent_for_conversation_returns_all_when_under_limit(self):
+        """Testa que com 50 mensagens e limit 50 todas são retornadas (0..49)."""
+        fake_messages = [MagicMock() for _ in range(50)]
+        self.session.scalars_results = fake_messages
+
+        result = await self.repo.list_recent_for_conversation(
+            self.session, str(uuid.uuid4()), limit=50
+        )
+
+        assert len(result) == 50
+
+    @pytest.mark.asyncio
+    async def test_list_recent_for_conversation_fifty_one_stored_selects_newest_fifty(
+        self,
+    ):
+        """Testa que com 51 mensagens e limit 50 são retornadas as 50 mais recentes."""
+        # Simula o resultado do banco já ordenado por sequence_index desc (50..1);
+        # o repositório deve devolver essas 50 em ordem cronológica (1..50).
+        stored = [MagicMock(sequence_index=index) for index in range(51)]
+        self.session.scalars_results = list(reversed(stored[1:]))  # DESC: 50..1
+
+        result = await self.repo.list_recent_for_conversation(
+            self.session, str(uuid.uuid4()), limit=50
+        )
+
+        # A mensagem mais antiga (índice 0) fica fora; as 50 restantes voltam asc.
+        assert len(result) == 50
+        assert [m.sequence_index for m in result] == list(range(1, 51))
+
+    @pytest.mark.asyncio
+    async def test_list_recent_for_conversation_limit_1_returns_newest_only(self):
+        """Testa que limit 1 retorna apenas a mensagem mais recente."""
+        newest = MagicMock()
+        self.session.scalars_results = [newest]
+
+        result = await self.repo.list_recent_for_conversation(
+            self.session, str(uuid.uuid4()), limit=1
+        )
+
+        assert result == [newest]
+
     # --- get_next_sequence_index ---
 
     @pytest.mark.asyncio

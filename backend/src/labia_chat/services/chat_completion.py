@@ -117,8 +117,8 @@ class ChatCompletionService:
             metadata=None,
         )
 
-        # Lista histórico da conversa em ordem
-        messages = await self.persistence_service.list_messages_for_user(
+        # Lista as mensagens mais recentes da conversa em ordem cronológica
+        messages = await self.persistence_service.list_recent_messages_for_user(
             conversation_id=conversation_id,
             user_id=user_id,
         )
@@ -187,7 +187,7 @@ class ChatCompletionService:
             metadata=None,
         )
 
-        messages = await self.persistence_service.list_messages_for_user(
+        messages = await self.persistence_service.list_recent_messages_for_user(
             conversation_id=conversation_id,
             user_id=user_id,
         )

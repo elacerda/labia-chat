@@ -72,6 +72,28 @@ class ChatMessageRepository:
         result = await session.scalars(stmt)
         return result.all()
 
+    async def list_recent_for_conversation(
+        self, session: AsyncSession, conversation_id: str, limit: int = 50
+    ) -> list[ChatMessage]:
+        """
+        Lista as mensagens mais recentes de uma conversa.
+
+        Seleciona as últimas `limit` mensagens por sequence_index desc e
+        retorna em ordem cronológica (sequence_index asc).
+
+        Args:
+            session: Sessão async do SQLAlchemy.
+            conversation_id: ID da conversa (string UUID).
+            limit: Número máximo de mensagens mais recentes a retornar.
+
+        Returns:
+            Lista de ChatMessage ordenadas por sequence_index asc.
+        """
+        stmt = select(ChatMessage).where(ChatMessage.conversation_id == conversation_id)
+        stmt = stmt.order_by(ChatMessage.sequence_index.desc()).limit(limit)
+        result = await session.scalars(stmt)
+        return list(reversed(result.all()))
+
     async def get_next_sequence_index(
         self, session: AsyncSession, conversation_id: str
     ) -> int:
